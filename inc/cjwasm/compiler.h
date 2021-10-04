@@ -30,27 +30,39 @@ namespace cjwasm
         };
     };
 
-    using stack_t = uint64_t;
-
-    union code_t
+    union value_t
     {
-        void (*code)(code_t const*, stack_t*);
         int32_t i32;
         uint32_t u32;
         int64_t i64;
         uint64_t u64;
         //float f32;
         //double f64;
+        void (*code)(value_t const*, value_t*);
+        value_t const* ip;
+        value_t* sp;
     };
 
-    using ip_t = code_t const*;
+    using sp_t = value_t*;
+    using ip_t = value_t const*;
 
-    void trap(ip_t, stack_t* sp) { }
+    using code_t = value_t;
 
-    inline void run(ip_t ip, stack_t* sp)
+    void trap(ip_t, sp_t sp) { }
+
+    inline int run(ip_t ip, sp_t sp)
     {
         ip->code(ip + 1, sp);
+        return sp[0].i32;
     }
+
+
+    struct function
+    {
+        ip_t ip;
+        int argument_count;
+        int return_count;
+    };
 
     struct compiler
     {
@@ -62,6 +74,9 @@ namespace cjwasm
         code_t* dst_begin;
         code_t* dst;
         code_t* dst_end;
+
+        function* functions;
+        function* self;
 
         struct block
         {
@@ -86,9 +101,9 @@ namespace cjwasm
         static uint32_t operand_u32(ip_t ip) { return ip->u32; }
 
         void emit(uint32_t a) { dst[0].u32 = a; ++dst; }
-        void emit(void (*f)(ip_t ip, stack_t* sp)) { dst[0].code = f; ++dst; }
-        void emit(void (*f)(ip_t ip, stack_t* sp), uint32_t a) { emit(f), emit(a); }
-        void emit(void (*f)(ip_t ip, stack_t* sp), decltype("" - "") a) { emit(f), emit(uint32_t(a)); }
+        void emit(void (*f)(ip_t ip, sp_t sp)) { dst[0].code = f; ++dst; }
+        void emit(void (*f)(ip_t ip, sp_t sp), uint32_t a) { emit(f), emit(a); }
+        void emit(void (*f)(ip_t ip, sp_t sp), decltype("" - "") a) { emit(f), emit(uint32_t(a)); }
 
         // unconditional branches don't depend on stack depth so handle them outside compile so there aren't unique ones per stack depth
         void do_branch(block& scope)
@@ -96,12 +111,12 @@ namespace cjwasm
             if (scope.op == wasm::op_loop)
             {
                 // branch back
-                emit([](ip_t ip, stack_t* sp) { auto offset = operand_u32(ip); (ip - offset)->code(ip - offset + 1, sp); }, dst - scope.enter);
+                emit([](ip_t ip, sp_t sp) { auto offset = operand_u32(ip); (ip - offset)->code(ip - offset + 1, sp); }, dst - scope.enter);
             }
             else
             {
                 // branch forward
-                emit([](ip_t ip, stack_t* sp) { auto offset = operand_u32(ip); (ip + offset)->code(ip + offset + 1, sp); }, dst - scope.leave);
+                emit([](ip_t ip, sp_t sp) { auto offset = operand_u32(ip); (ip + offset)->code(ip + offset + 1, sp); }, dst - scope.leave);
                 scope.leave = dst - 1;
             }
         }
@@ -109,7 +124,7 @@ namespace cjwasm
         template<int N>
         int compile(int n)
         {
-            auto forward_if = [](ip_t ip, stack_t* sp) { auto offset = sp[N] == 0 ? 0 : operand_u32(ip); (ip + offset)->code(ip + offset + 1, sp); };
+            auto forward_if = [](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip + offset)->code(ip + offset + 1, sp); };
 
             while (n == N) switch (get_code())
             {
@@ -135,9 +150,6 @@ namespace cjwasm
                 continue;
 
             case wasm::op_end:
-                emit(trap);
-                return 0;
-
                 // fix up forward branches
                 for (ip_t np = bp[0].leave; np != 0;)
                 {
@@ -145,10 +157,20 @@ namespace cjwasm
                     (uint32_t&)np[0] = uint32_t(dst - np);
                     np -= offset;
                 }
+                
                 if (bp == &blocks[15])
                 {
-                    // TODO detect return to wasm code or native code
-                    emit([](ip_t ip, stack_t* sp) {});// ip = (ip_t&)sp[-2]; ip->code(ip + 1, (stack_t*&)sp[-1]); });
+                    emit([](ip_t ip, sp_t sp)
+                        {
+                            auto return_ip = sp[N - 2].ip;
+                            auto return_sp = sp[N - 1].sp;
+                            auto n = ip[0].u32;
+                            for (uint32_t i = 0; i < n; ++i)
+                                sp[i] = sp[N - n + i + 1];
+
+                            if (return_ip != nullptr)
+                                return_ip->code(return_ip + 1, return_sp);
+                        }, uint32_t(self->return_count));
                     return 0;
                 }
                 ++bp;
@@ -164,7 +186,7 @@ namespace cjwasm
                 if (scope.op == wasm::op_loop)
                 {
                     // branch back
-                    emit([](ip_t ip, stack_t* sp) { auto offset = sp[N] == 0 ? 0 : operand_u32(ip); (ip - offset)->code(ip - offset + 1, sp); }, dst - scope.enter);
+                    emit([](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip - offset)->code(ip - offset + 1, sp); }, dst - scope.enter);
                 }
                 else
                 {
@@ -175,45 +197,70 @@ namespace cjwasm
             }
 
             case wasm::op_return:
-                // TODO detect return to wasm code or native code
-                emit(trap);// ip = (ip_t&)sp[-2]; ip->code(ip + 1, (stack_t*&)sp[-1]); });
+                emit([](ip_t ip, sp_t sp)
+                    {
+                        auto return_ip = sp[N - 2].ip;
+                        auto return_sp = sp[N - 1].sp;
+                        auto n = ip[0].u32;
+                        for (uint32_t i = 0; i < n; ++i)
+                            sp[i] = sp[N - n + i + 1];
+
+                        if (return_ip != nullptr)
+                            return_ip->code(return_ip + 1, return_sp);
+                    }, uint32_t(self->return_count));
                 continue;
             case wasm::op_call:
+            {
+                auto const& f = functions[get_leb128_u32()];
+                emit([](ip_t ip, sp_t sp)
+                    {
+                        sp[N + 1].ip = ip + 2;
+                        sp[N + 2].sp = sp;
+
+                        auto n = ip[0].u32;
+                        ip = ip[1].ip;
+                        ip->code(ip + 1, sp + N - n);
+                    });
+                dst[0].u32 = f.argument_count;
+                dst[1].ip = f.ip;
+                dst += 2;
+                n += f.return_count - f.argument_count;
                 continue;
+            }
 
             case wasm::op_drop: return N - 1;
             case wasm::op_select:
-                emit([](ip_t ip, stack_t* sp) { if (sp[N] != 0) sp[N - 2] = sp[N - 1]; ip->code(ip + 1, sp); });
+                emit([](ip_t ip, sp_t sp) { if (sp[N].i32 != 0) sp[N - 2] = sp[N - 1]; ip->code(ip + 1, sp); });
                 return N - 2;
             case wasm::op_local_get:
-                emit([](ip_t ip, stack_t* sp) { sp[N + 1] = sp[operand_u32(ip)]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
+                emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[operand_u32(ip)]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
                 return compile<N + 1>(N + 1);
             case wasm::op_local_set:
-                emit([](ip_t ip, stack_t* sp) { sp[operand_u32(ip)] = sp[N]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
+                emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
                 return N - 1;
             case wasm::op_local_tee:
-                emit([](ip_t ip, stack_t* sp) { sp[operand_u32(ip)] = sp[N]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
+                emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
                 continue;
 
-            case wasm::op_add_i32: return emit([](ip_t ip, stack_t* sp) { (uint32_t&)sp[N - 1] = (uint32_t&)sp[N - 1] + (uint32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;
-            case wasm::op_sub_i32: return emit([](ip_t ip, stack_t* sp) { (uint32_t&)sp[N - 1] = (uint32_t&)sp[N - 1] - (uint32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;
-            case wasm::op_mul_i32: return emit([](ip_t ip, stack_t* sp) { (uint32_t&)sp[N - 1] = (uint32_t&)sp[N - 1] * (uint32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;           
-            case wasm::op_div_s_i32: return emit([](ip_t ip, stack_t* sp) { (int32_t&)sp[N - 1] = (int32_t&)sp[N - 1] / (int32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;
-            case wasm::op_div_u_i32: return emit([](ip_t ip, stack_t* sp) { (uint32_t&)sp[N - 1] = (uint32_t&)sp[N - 1] / (uint32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;
-            case wasm::op_rem_s_i32: return emit([](ip_t ip, stack_t* sp) { (int32_t&)sp[N - 1] = (int32_t&)sp[N - 1] % (int32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;
-            case wasm::op_rem_u_i32: return emit([](ip_t ip, stack_t* sp) { (uint32_t&)sp[N - 1] = (uint32_t&)sp[N - 1] % (uint32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_add_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 + sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_sub_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 - sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_mul_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 * sp[N].u32; ip->code(ip + 1, sp); }), N - 1;           
+            case wasm::op_div_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 / sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_div_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 / sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_rem_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 % sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_rem_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 % sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
 
-            case wasm::op_and_i32: return emit([](ip_t ip, stack_t* sp) { (uint32_t&)sp[N - 1] = (uint32_t&)sp[N - 1] & (uint32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;
-            case wasm::op_or_i32: return emit([](ip_t ip, stack_t* sp) { (uint32_t&)sp[N - 1] = (uint32_t&)sp[N - 1] | (uint32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;
-            case wasm::op_xor_i32: return emit([](ip_t ip, stack_t* sp) { (uint32_t&)sp[N - 1] = (uint32_t&)sp[N - 1] ^ (uint32_t&)sp[N]; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_and_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 & sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_or_i32:    return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 | sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_xor_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 ^ sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
             }
             while (n > N)
                 n = compile<N + 1>(n);
             return n;
         }
         // compile error
-        template<> int compile<8>(int) { return 8; }
-        template<> int compile<-1>(int) { return -1; }
+        template<> int compile<8>(int) { return 7; }
+        template<> int compile<1>(int) { return 0; }
 
         size_t compile_function(int n, size_t src_size, uint8_t const src_data[], size_t dst_size, code_t dst_data[])
         {
@@ -228,8 +275,14 @@ namespace cjwasm
             bp = &blocks[15];
             *bp = { wasm::op_block, wasm::bt_i32, dst, nullptr };
 
-            compile<0>(n);
-            return reinterpret_cast<char*>(dst) - reinterpret_cast<char*>(dst_begin);
+            function fs[8];
+            functions = fs;
+
+            functions[0] = { dst, n, 1 };
+            self = &functions[0];
+
+            compile<2>(1 + n);
+            return dst - dst_begin;
         }
     };
 }
