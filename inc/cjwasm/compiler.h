@@ -19,6 +19,21 @@ namespace cjwasm
 
             op_local_get = 0x20, op_local_set, op_local_tee,
 
+            op_const_i32 = 0x41,
+            op_const_i64,
+
+            op_eqz_i32 = 0x45,
+            op_eq_i32,
+            op_ne_i32,
+            op_lt_s_i32,
+            op_lt_u_i32,
+            op_gt_s_i32,
+            op_gt_u_i32,
+            op_le_s_i32,
+            op_le_u_i32,
+            op_ge_s_i32,
+            op_ge_u_i32,
+
             op_add_i32 = 0x6a, op_sub_i32, op_mul_i32, op_div_s_i32, op_div_u_i32, op_rem_s_i32, op_rem_u_i32,
             op_and_i32, op_or_i32, op_xor_i32
         };
@@ -98,11 +113,19 @@ namespace cjwasm
             return *src++;
         }
 
+        uint64_t get_leb128_u64()
+        {
+            // TODO https://en.wikipedia.org/wiki/LEB128
+            return *src++;
+        }
+
         static uint32_t operand_u32(ip_t ip) { return ip->u32; }
 
         void emit(uint32_t a) { dst[0].u32 = a; ++dst; }
+        void emit(uint64_t a) { dst[0].u64 = a; ++dst; }
         void emit(void (*f)(ip_t ip, sp_t sp)) { dst[0].code = f; ++dst; }
         void emit(void (*f)(ip_t ip, sp_t sp), uint32_t a) { emit(f), emit(a); }
+        void emit(void (*f)(ip_t ip, sp_t sp), uint64_t a) { emit(f), emit(a); }
         void emit(void (*f)(ip_t ip, sp_t sp), decltype("" - "") a) { emit(f), emit(uint32_t(a)); }
 
         // unconditional branches don't depend on stack depth so handle them outside compile so there aren't unique ones per stack depth
@@ -227,7 +250,6 @@ namespace cjwasm
                 n += f.return_count - f.argument_count;
                 continue;
             }
-
             case wasm::op_drop: return N - 1;
             case wasm::op_select:
                 emit([](ip_t ip, sp_t sp) { if (sp[N].i32 != 0) sp[N - 2] = sp[N - 1]; ip->code(ip + 1, sp); });
@@ -241,6 +263,27 @@ namespace cjwasm
             case wasm::op_local_tee:
                 emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
                 continue;
+
+            case wasm::op_const_i32:
+                emit([](ip_t ip, sp_t sp) { sp[N + 1].i32 = ip->i32; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
+                return compile<N + 1>(N + 1);
+            case wasm::op_const_i64:
+                emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; (ip + 1)->code(ip + 2, sp); }, get_leb128_u64());
+                return compile<N + 1>(N + 1);
+
+            case wasm::op_eqz_i32: emit([](ip_t ip, sp_t sp) { sp[N].u32 = sp[N].u32 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
+
+            case wasm::op_eq_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 == sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_ne_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 != sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+
+            case wasm::op_lt_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 < sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_lt_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 < sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_gt_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 > sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_gt_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 > sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_le_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 <= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_le_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 <= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_ge_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 >= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case wasm::op_ge_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
 
             case wasm::op_add_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 + sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
             case wasm::op_sub_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 - sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
