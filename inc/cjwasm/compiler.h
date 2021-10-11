@@ -51,8 +51,8 @@ namespace cjwasm
         uint32_t u32;
         int64_t i64;
         uint64_t u64;
-        //float f32;
-        //double f64;
+        float f32;
+        double f64;
         void (*code)(value_t const*, value_t*);
         value_t const* ip;
         value_t* sp;
@@ -65,12 +65,20 @@ namespace cjwasm
 
     void trap(ip_t, sp_t sp) { }
 
-    inline int run(ip_t ip, sp_t sp)
+    template<class T, size_t N = 128, class...Ts> T call(ip_t ip, Ts...ts)
     {
-        ip->code(ip + 1, sp);
-        return sp[0].i32;
-    }
+        value_t stack[N];
 
+        size_t i = 0;
+        int _[]{ ((Ts&)stack[i++] = ts, 0)... };
+
+        value_t done;
+        done.code = trap;
+        stack[sizeof...(Ts) + 0].ip = &done;
+        stack[sizeof...(Ts) + 1].sp = nullptr;
+        ip->code(ip + 1, stack);
+        return (T const&)stack[0];
+    }
 
     struct function
     {
@@ -147,7 +155,20 @@ namespace cjwasm
         template<int N>
         int compile(int n)
         {
-            auto forward_if = [](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip + offset)->code(ip + offset + 1, sp); };
+            auto do_forward_if = [](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip + offset)->code(ip + offset + 1, sp); };
+            auto emit_return = [this]
+            {
+                emit([](ip_t ip, sp_t sp)
+                    {
+                        auto return_ip = sp[N - 2].ip;
+                        auto return_sp = sp[N - 1].sp;
+                        auto n = ip[0].u32;
+                        for (uint32_t i = 0; i < n; ++i)
+                            sp[i] = sp[N - n + i + 1];
+
+                        return_ip->code(return_ip + 1, return_sp);
+                    }, uint32_t(self->return_count));
+            };
 
             while (n == N) switch (get_code())
             {
@@ -162,7 +183,7 @@ namespace cjwasm
                 continue;
             case wasm::op_if:
                 *--bp = { wasm::op_if, get_u8(), dst, nullptr };
-                emit(forward_if, dst - dst);
+                emit(do_forward_if, dst - dst);
                 return N - 1;
 
             case wasm::op_else:
@@ -183,17 +204,7 @@ namespace cjwasm
                 
                 if (bp == &blocks[15])
                 {
-                    emit([](ip_t ip, sp_t sp)
-                        {
-                            auto return_ip = sp[N - 2].ip;
-                            auto return_sp = sp[N - 1].sp;
-                            auto n = ip[0].u32;
-                            for (uint32_t i = 0; i < n; ++i)
-                                sp[i] = sp[N - n + i + 1];
-
-                            if (return_ip != nullptr)
-                                return_ip->code(return_ip + 1, return_sp);
-                        }, uint32_t(self->return_count));
+                    emit_return();
                     return 0;
                 }
                 ++bp;
@@ -213,24 +224,14 @@ namespace cjwasm
                 }
                 else
                 {
-                    emit(forward_if, dst - scope.leave);
+                    emit(do_forward_if, dst - scope.leave);
                     scope.leave = dst - 1;
                 }
                 return N - 1;
             }
 
             case wasm::op_return:
-                emit([](ip_t ip, sp_t sp)
-                    {
-                        auto return_ip = sp[N - 2].ip;
-                        auto return_sp = sp[N - 1].sp;
-                        auto n = ip[0].u32;
-                        for (uint32_t i = 0; i < n; ++i)
-                            sp[i] = sp[N - n + i + 1];
-
-                        if (return_ip != nullptr)
-                            return_ip->code(return_ip + 1, return_sp);
-                    }, uint32_t(self->return_count));
+                emit_return();
                 continue;
             case wasm::op_call:
             {
