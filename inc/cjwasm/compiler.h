@@ -1,6 +1,8 @@
 using uint8_t = unsigned char;
 using uint16_t = unsigned short;
 using uint32_t = unsigned int;
+using int8_t = signed char;
+using int16_t = short;
 using int32_t = int;
 using uint64_t = unsigned long long;
 using int64_t = long long;
@@ -9,7 +11,7 @@ namespace cjwasm
 {
     struct wasm
     {
-        enum
+        enum : uint8_t
         {
             op_unreachable, op_nop, op_block, op_loop, op_if, op_else,
             op_end = 0x0b, op_br, op_br_if, op_return = 0x0f,
@@ -35,12 +37,9 @@ namespace cjwasm
             op_ge_u_i32,
 
             op_add_i32 = 0x6a, op_sub_i32, op_mul_i32, op_div_s_i32, op_div_u_i32, op_rem_s_i32, op_rem_u_i32,
-            op_and_i32, op_or_i32, op_xor_i32
-        };
+            op_and_i32, op_or_i32, op_xor_i32,
 
-        enum
-        {
-            bt_void,
+            bt_void = 0x40,
             bt_i32 = 0x7f, bt_i64 = 0x7e, bt_f32 = 0x7d, bt_f64 = 0x7c,
         };
     };
@@ -121,6 +120,13 @@ namespace cjwasm
             return *src++;
         }
 
+        uint32_t get_leb128_i32()
+        {
+            // TODO https://en.wikipedia.org/wiki/LEB128
+            return uint32_t(int32_t(int8_t(*src++)));
+        }
+
+
         uint64_t get_leb128_u64()
         {
             // TODO https://en.wikipedia.org/wiki/LEB128
@@ -142,12 +148,12 @@ namespace cjwasm
             if (scope.op == wasm::op_loop)
             {
                 // branch back
-                emit([](ip_t ip, sp_t sp) { auto offset = operand_u32(ip); (ip - offset)->code(ip - offset + 1, sp); }, dst - scope.enter);
+                emit([](ip_t ip, sp_t sp) { auto offset = operand_u32(ip); (ip - offset + 1)->code(ip - offset + 2, sp); }, dst - scope.enter + 2);
             }
             else
             {
                 // branch forward
-                emit([](ip_t ip, sp_t sp) { auto offset = operand_u32(ip); (ip + offset)->code(ip + offset + 1, sp); }, dst - scope.leave);
+                emit([](ip_t ip, sp_t sp) { auto offset = operand_u32(ip); (ip + offset + 1)->code(ip + offset + 2, sp); }, dst - scope.leave);
                 scope.leave = dst - 1;
             }
         }
@@ -155,7 +161,7 @@ namespace cjwasm
         template<int N>
         int compile(int n)
         {
-            auto do_forward_if = [](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip + offset)->code(ip + offset + 1, sp); };
+            auto do_forward_if = [](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip + offset + 1)->code(ip + offset + 2, sp); };
             auto emit_return = [this]
             {
                 emit([](ip_t ip, sp_t sp)
@@ -198,8 +204,9 @@ namespace cjwasm
                 for (ip_t np = bp[0].leave; np != 0;)
                 {
                     auto offset = (uint32_t&)np[0];
-                    (uint32_t&)np[0] = uint32_t(dst - np);
+                    (uint32_t&)np[0] = uint32_t(dst - np) + 1;
                     np -= offset;
+                    np = 0;
                 }
                 
                 if (bp == &blocks[15])
@@ -220,7 +227,7 @@ namespace cjwasm
                 if (scope.op == wasm::op_loop)
                 {
                     // branch back
-                    emit([](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip - offset)->code(ip - offset + 1, sp); }, dst - scope.enter);
+                    emit([](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip - offset + 1)->code(ip - offset + 2, sp); }, dst - scope.enter + 2);
                 }
                 else
                 {
@@ -266,7 +273,7 @@ namespace cjwasm
                 continue;
 
             case wasm::op_const_i32:
-                emit([](ip_t ip, sp_t sp) { sp[N + 1].i32 = ip->i32; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
+                emit([](ip_t ip, sp_t sp) { sp[N + 1].i32 = ip->i32; (ip + 1)->code(ip + 2, sp); }, get_leb128_i32());
                 return compile<N + 1>(N + 1);
             case wasm::op_const_i64:
                 emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; (ip + 1)->code(ip + 2, sp); }, get_leb128_u64());
