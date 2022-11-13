@@ -17,33 +17,33 @@ namespace cjwasm
 
         op_local_get, op_local_set, op_local_tee, _op_global_get, _op_global_set, _op_table_get, _op_table_set, _op_27,
         
-        _op_load_i32, _op_load_i64, _op_load_f32, _op_load_f64,
-        _op_load8_s_i32, _op_load8_u_i32, _op_load16_s_i32, _op_load16_u_i32, _op_load8_s_i64, _op_load8_u_i64, _op_load16_s_i64, _op_load16_u_i64, _op_load32_s_i64, _op_load32_u_i64,
+        _op_i32_load, _op_i64_load, _op_f32_load, _op_f64_load,
+        _op_i32_load8_s, _op_i32_load8_u, _op_i32_load16_s, _op_i32_load16_u, _op_i64_load8_s, _op_i64_load8_u, _op_i64_load16_s, _op_i64_load16_u, _op_i64_load32_s, _op_i64_load32_u,
 
-        _op_store_i32, _op_store_i64, _op_store_f32, _op_store_f64,
-        _op_store8_i32, _op_store16_i32, _op_store8_i64, _op_store16_i64, _op_store32_i64,
+        _op_i32_store, _op_i64_store, _op_f32_store, _op_f64_store,
+        _op_i32_store8, _op_i32_store16, _op_i64_store8, _op_i64_store16, _op_i64_store32,
         
         _op_memory_size,
         _op_memory_grow,
 
-        op_const_i32, op_const_i64, _op_const_f32, _op_const_f64,
+        op_i32_const, op_i64_const, _op_f32_const, _op_f64_const,
 
-        op_eqz_i32, op_eq_i32, op_ne_i32, op_lt_s_i32, op_lt_u_i32, op_gt_s_i32, op_gt_u_i32, op_le_s_i32, op_le_u_i32, op_ge_s_i32, op_ge_u_i32,
-        _op_eqz_i64, _op_eq_i64, _op_ne_i64, _op_lt_s_i64, _op_lt_u_i64, _op_gt_s_i64, _op_gt_u_i64, _op_le_s_i64, _op_le_u_i64, _op_ge_s_i64, _op_ge_u_i64,
+        op_i32_eqz, op_i32_eq, op_i32_ne, op_i32_lt_s, op_i32_lt_u, op_i32_gt_s, op_i32_gt_u, op_i32_le_s, op_i32_le_u, op_i32_ge_s, op_i32_ge_u,
+        _op_i64_eqz, _op_i64_eq, _op_i64_ne, _op_i64_lt_s, _op_i64_lt_u, _op_i64_gt_s, _op_i64_gt_u, _op_i64_le_s,_op_i64_le_u, _op_i64_ge_s, _op_i64_ge_u,
 
-        _op_eq_f32, _op_ne_f32, _op_lt_f32, _op_gt_f32, _op_le_f32, _op_ge_f32,
-        _op_eq_f64, _op_ne_f64, _op_lt_f64, _op_gt_f64, _op_le_f64, _op_ge_f64,
+        _op_f32_eq, _op_f32_ne, _op_f32_lt, _op_f32_gt, _op_f32_le, _op_f32_ge,
+        _op_f64_eq, _op_f64_ne, _op_f64_lt, _op_f64_gt, _op_f64_le, _op_f64_ge,
 
-        _op_clz_i32, _op_ctz_i32, _op_popcnt_i32, 
-        op_add_i32, op_sub_i32, op_mul_i32, op_div_s_i32, op_div_u_i32, op_rem_s_i32, op_rem_u_i32,
-        op_and_i32, op_or_i32, op_xor_i32, _op_shl_i32, _op_shr_s_i32, _op_shr_u_i32, _op_rotl_i32, _op_rotr_i32,
+        _op_i32_clz, _op_i32_ctz, _op_i32_popcnt,
+        op_i32_add, op_i32_sub, op_i32_mul, op_i32_div_s, op_i32_div_u, op_i32_rem_s, op_i32_rem_u,
+        op_i32_and, op_i32_or, op_i32_xor, _op_i32_shl, _op_i32_shr_s, _op_i32_shr_u, _op_i32_rotl, _op_i32_rotr,
 
-        _op_clz_i64, _op_ctz_i64, _op_popcnt_i64,
-        _op_add_i64, _op_sub_i64, _op_mul_i64, _op_div_s_i64, _op_div_u_i64, _op_rem_s_i64, _op_rem_u_i64,
-        _op_and_i64, _op_or_i64, _op_xor_i64, _op_shl_i64, _op_shr_s_i64, _op_shr_u_i64, _op_rotl_i64, _op_rotr_i64,
+        _op_i64_clz, _op_i64_ctz, _op_i64_popcnt,
+        _op_i64_add, _op_i64_sub, _op_i64_mul, _op_i64_div_s, _op_i64_div_u, _op_i64_rem_s, _op_i64_rem_u,
+        _op_i64_and, _op_i64_or, _op_i64_xor, _op_i64_shl, _op_i64_shr_s, _op_i64_shr_u, _op_i64_rotl, _op_i64_rotr,
 
-        _op_abs_f32, _op_neg_f32, _op_ceil_f32, _op_floor_f32, _op_trunc_f32, _op_nearest_f32, _op_sqrt_f32, _op_add_f32, _op_sub_f32, _op_mul_f32, _op_div_f32, _op_min_f32, _op_max_f32, _op_copysign_f32,
-        _op_abs_f64, _op_neg_f64, _op_ceil_f64, _op_floor_f64, _op_trunc_f64, _op_nearest_f64, _op_sqrt_f64, _op_add_f64, _op_sub_f64, _op_mul_f64, _op_div_f64, _op_min_f64, _op_max_f64, _op_copysign_f64,
+        _op_f32_abs, _op_f32_neg, _op_f32_ceil, _op_f32_floor, _op_f32_trunc, _op_f32_nearest, _op_f32_sqrt, _op_f32_add, _op_f32_sub, _op_f32_mul, _op_f32_div, _op_f32_min, _op_f32_max, _op_f32_copysign,
+        _op_f64_abs, _op_f64_neg, _op_f64_ceil, _op_f64_floor, _op_f64_trunc, _op_f64_nearest, _op_f64_sqrt, _op_f64_add, _op_f64_sub, _op_f64_mul, _op_f64_div, _op_f64_min, _op_f64_max, _op_f64_copysign,
 
 
         bt_void = 0x40,
@@ -56,8 +56,6 @@ namespace cjwasm
         uint32_t u32;
         int64_t i64;
         uint64_t u64;
-        float f32;
-        double f64;
         void (*code)(value_t const*, value_t*);
         value_t const* ip;
         value_t* sp;
@@ -210,12 +208,13 @@ namespace cjwasm
 
             case op_end:
                 // fix up forward branches
-                for (ip_t np = bp[0].leave; np != 0;)
+                for (auto np = bp[0].leave; np != nullptr;)
                 {
-                    auto offset = (uint32_t&)np[0];
-                    (uint32_t&)np[0] = uint32_t(dst - np) + 1;
+                    auto offset = np->u32;
+                    np->u32 = uint32_t(dst - np) + 1;
+
                     np -= offset;
-                    np = 0;
+                    np = nullptr; // for now, until we fix forward branche chains
                 }
                 
                 if (bp == &blocks[15])
@@ -272,47 +271,47 @@ namespace cjwasm
                 emit([](ip_t ip, sp_t sp) { if (sp[N].i32 != 0) sp[N - 2] = sp[N - 1]; ip->code(ip + 1, sp); });
                 return N - 2;
             case op_local_get:
-                emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[operand_u32(ip)]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
+                emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[operand_u32(ip)]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
                 return compile<N + 1>(N + 1);
             case op_local_set:
-                emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
+                emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
                 return N - 1;
             case op_local_tee:
-                emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; (ip + 1)->code(ip + 2, sp); }, get_leb128_u32());
+                emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
                 continue;
 
-            case op_const_i32:
-                emit([](ip_t ip, sp_t sp) { sp[N + 1].i32 = ip->i32; (ip + 1)->code(ip + 2, sp); }, get_leb128_i32());
+            case op_i32_const:
+                emit([](ip_t ip, sp_t sp) { sp[N + 1].i32 = ip->i32; ip[1].code(ip + 2, sp); }, get_leb128_i32());
                 return compile<N + 1>(N + 1);
-            case op_const_i64:
-                emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; (ip + 1)->code(ip + 2, sp); }, get_leb128_u64());
+            case op_i64_const:
+                emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; ip[1].code(ip + 2, sp); }, get_leb128_u64());
                 return compile<N + 1>(N + 1);
 
-            case op_eqz_i32: emit([](ip_t ip, sp_t sp) { sp[N].u32 = sp[N].u32 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
+            case op_i32_eqz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = sp[N].u32 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
 
-            case op_eq_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 == sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_ne_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 != sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_eq: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 == sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_ne: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 != sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
 
-            case op_lt_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 < sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_lt_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 < sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_gt_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 > sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_gt_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 > sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_le_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 <= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_le_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 <= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_ge_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 >= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_ge_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_lt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 < sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_lt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 < sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_gt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 > sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_gt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 > sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_le_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 <= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_le_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 <= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_ge_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 >= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_ge_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
 
-            case op_add_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 + sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_sub_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 - sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_mul_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 * sp[N].u32; ip->code(ip + 1, sp); }), N - 1;           
-            case op_div_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 / sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
-            case op_div_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 / sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_rem_s_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 % sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
-            case op_rem_u_i32: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 % sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_add:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 + sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_sub:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 - sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_mul:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 * sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_div_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 / sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_div_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 / sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_rem_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 % sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_rem_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 % sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
 
-            case op_and_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 & sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_or_i32:    return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 | sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_xor_i32:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 ^ sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_and:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 & sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_or:    return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 | sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+            case op_i32_xor:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 ^ sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
             }
             while (n > N)
                 n = compile<N + 1>(n);

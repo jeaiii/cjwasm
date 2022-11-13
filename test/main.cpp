@@ -4,9 +4,9 @@ uint8_t src1[]
 { 
     cjwasm::op_local_get, 0, 
     cjwasm::op_local_get, 1, 
-    cjwasm::op_mul_i32, 
+    cjwasm::op_i32_mul, 
     cjwasm::op_local_get, 0, 
-    cjwasm::op_add_i32,
+    cjwasm::op_i32_add,
     cjwasm::op_end
 };
 
@@ -44,21 +44,21 @@ uint8_t src2[]
 {
     cjwasm::op_block, cjwasm::bt_void,
     cjwasm::op_local_get, 0,
-    cjwasm::op_const_i32, 2,
-    cjwasm::op_lt_s_i32,
+    cjwasm::op_i32_const, 2,
+    cjwasm::op_i32_lt_s,
     cjwasm::op_br_if, 0,
 
     cjwasm::op_loop, cjwasm::bt_void,
     cjwasm::op_local_get, 1,
     cjwasm::op_local_get, 0,
-    cjwasm::op_mul_i32,
+    cjwasm::op_i32_mul,
     cjwasm::op_local_set, 1,
     cjwasm::op_local_get, 0,
-    cjwasm::op_const_i32, uint8_t(-1),
-    cjwasm::op_add_i32,
+    cjwasm::op_i32_const, uint8_t(-1),
+    cjwasm::op_i32_add,
     cjwasm::op_local_tee, 0,
-    cjwasm::op_const_i32, 1,
-    cjwasm::op_gt_s_i32,
+    cjwasm::op_i32_const, 1,
+    cjwasm::op_i32_gt_s,
     cjwasm::op_br_if, 0,
     cjwasm::op_end,
     cjwasm::op_end,
