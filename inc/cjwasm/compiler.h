@@ -1,19 +1,25 @@
-using uint8_t = unsigned char;
-using uint16_t = unsigned short;
-using uint32_t = unsigned int;
-using int8_t = signed char;
-using int16_t = short;
-using int32_t = int;
-using uint64_t = unsigned long long;
-using int64_t = long long;
-
 namespace cjwasm
 {
-    extern "C" unsigned int __lzcnt(unsigned int);
+    using uint8_t = unsigned char;
+    using uint16_t = unsigned short;
+    using uint32_t = decltype(0xffffffff);
+    using uint64_t = decltype(0xffffffffffffffff);
+    using int8_t = signed char;
+    using int16_t = short;
+    using int32_t = decltype(2147483647);
+    using int64_t = decltype(9223372036854775807);
+
+    extern "C" unsigned int _lzcnt_u32(unsigned int);
     extern "C" unsigned int _tzcnt_u32(unsigned int);
     extern "C" unsigned int __popcnt(unsigned int);
     extern "C" unsigned int _rotl(unsigned int, int);
     extern "C" unsigned int _rotr(unsigned int, int);
+
+    extern "C" uint64_t _lzcnt_u64(uint64_t);
+    extern "C" uint64_t _tzcnt_u64(uint64_t);
+    extern "C" uint64_t __popcnt64(uint64_t);
+    extern "C" unsigned long long _lrotl(unsigned long long, int);
+    extern "C" unsigned long long _lrotr(unsigned long long, int);
 
     enum : uint8_t
     {
@@ -44,13 +50,12 @@ namespace cjwasm
         op_i32_add, op_i32_sub, op_i32_mul, op_i32_div_s, op_i32_div_u, op_i32_rem_s, op_i32_rem_u,
         op_i32_and, op_i32_or, op_i32_xor, op_i32_shl, op_i32_shr_s, op_i32_shr_u, op_i32_rotl, op_i32_rotr,
 
-        _op_i64_clz, _op_i64_ctz, _op_i64_popcnt,
-        _op_i64_add, _op_i64_sub, _op_i64_mul, _op_i64_div_s, _op_i64_div_u, _op_i64_rem_s, _op_i64_rem_u,
-        _op_i64_and, _op_i64_or, _op_i64_xor, _op_i64_shl, _op_i64_shr_s, _op_i64_shr_u, _op_i64_rotl, _op_i64_rotr,
+        op_i64_clz, op_i64_ctz, op_i64_popcnt,
+        op_i64_add, op_i64_sub, op_i64_mul, op_i64_div_s, op_i64_div_u, op_i64_rem_s, op_i64_rem_u,
+        op_i64_and, op_i64_or, op_i64_xor, op_i64_shl, op_i64_shr_s, op_i64_shr_u, op_i64_rotl, op_i64_rotr,
 
         _op_f32_abs, _op_f32_neg, _op_f32_ceil, _op_f32_floor, _op_f32_trunc, _op_f32_nearest, _op_f32_sqrt, _op_f32_add, _op_f32_sub, _op_f32_mul, _op_f32_div, _op_f32_min, _op_f32_max, _op_f32_copysign,
         _op_f64_abs, _op_f64_neg, _op_f64_ceil, _op_f64_floor, _op_f64_trunc, _op_f64_nearest, _op_f64_sqrt, _op_f64_add, _op_f64_sub, _op_f64_mul, _op_f64_div, _op_f64_min, _op_f64_max, _op_f64_copysign,
-
 
         bt_void = 0x40,
         bt_i32 = 0x7f, bt_i64 = 0x7e, bt_f32 = 0x7d, bt_f64 = 0x7c,
@@ -292,7 +297,6 @@ namespace cjwasm
                 emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; ip[1].code(ip + 2, sp); }, get_leb128_u64());
                 return compile<N + 1>(N + 1);
 
-
             // 32 bit booleans
             case op_i32_eqz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = sp[N].u32 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
 
@@ -322,8 +326,7 @@ namespace cjwasm
             case op_i64_ge_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
 
             // 32 bit alu
-
-            case op_i32_clz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = __lzcnt(sp[N].u32); ip->code(ip + 1, sp); }); continue;
+            case op_i32_clz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = _lzcnt_u32(sp[N].u32); ip->code(ip + 1, sp); }); continue;
             case op_i32_ctz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = _tzcnt_u32(sp[N].u32); ip->code(ip + 1, sp); }); continue;
             case op_i32_popcnt: emit([](ip_t ip, sp_t sp) { sp[N].u32 = __popcnt(sp[N].u32); ip->code(ip + 1, sp); }); continue;                
 
@@ -343,6 +346,26 @@ namespace cjwasm
             case op_i32_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = _rotl(sp[N - 1].u32, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
             case op_i32_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = _rotr(sp[N - 1].u32, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
 
+            // 64 bit alu
+            case op_i64_clz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = _lzcnt_u64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+            case op_i64_ctz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = _tzcnt_u64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+            case op_i64_popcnt: emit([](ip_t ip, sp_t sp) { sp[N].u64 = __popcnt64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+
+            case op_i64_add:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 + sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_sub:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 - sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_mul:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 * sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_div_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 / sp[N].i64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_div_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 / sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_rem_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 % sp[N].i64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_rem_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 % sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_and:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 & sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_or:    return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 | sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_xor:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 ^ sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_shl:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 << sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_shr_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 >> sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_shr_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 >> sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _lrotl(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _lrotr(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
 
             }
             while (n > N)

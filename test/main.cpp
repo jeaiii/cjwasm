@@ -1,6 +1,6 @@
 #include "../inc/cjwasm/compiler.h"
 
-uint8_t src1[]
+cjwasm::uint8_t src1[]
 { 
     cjwasm::op_local_get, 0, 
     cjwasm::op_local_get, 1, 
@@ -40,7 +40,7 @@ end
 get_local $p1)
 */
 
-uint8_t src2[]
+cjwasm::uint8_t src2[]
 {
     cjwasm::op_block, cjwasm::bt_void,
     cjwasm::op_local_get, 0,
@@ -54,7 +54,7 @@ uint8_t src2[]
     cjwasm::op_i32_mul,
     cjwasm::op_local_set, 1,
     cjwasm::op_local_get, 0,
-    cjwasm::op_i32_const, uint8_t(-1),
+    cjwasm::op_i32_const, cjwasm::uint8_t(-1),
     cjwasm::op_i32_add,
     cjwasm::op_local_tee, 0,
     cjwasm::op_i32_const, 1,
@@ -67,7 +67,7 @@ uint8_t src2[]
 
 cjwasm::code_t g_dst[1024];
 
-template<int N> void compile(uint8_t(&src)[N], cjwasm::code_t dst[])
+template<unsigned N> void compile(cjwasm::uint8_t (&src)[N], cjwasm::code_t dst[])
 {
     cjwasm::compiler c;
     c.compile_function(2, N, src, 1024, dst);
