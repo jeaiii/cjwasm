@@ -29,7 +29,7 @@ namespace cjwasm
         op_i32_const, op_i64_const, _op_f32_const, _op_f64_const,
 
         op_i32_eqz, op_i32_eq, op_i32_ne, op_i32_lt_s, op_i32_lt_u, op_i32_gt_s, op_i32_gt_u, op_i32_le_s, op_i32_le_u, op_i32_ge_s, op_i32_ge_u,
-        _op_i64_eqz, _op_i64_eq, _op_i64_ne, _op_i64_lt_s, _op_i64_lt_u, _op_i64_gt_s, _op_i64_gt_u, _op_i64_le_s,_op_i64_le_u, _op_i64_ge_s, _op_i64_ge_u,
+        _op_i64_eqz, _op_i64_eq, _op_i64_ne, _op_i64_lt_s, _op_i64_lt_u, _op_i64_gt_s, _op_i64_gt_u, _op_i64_le_s, _op_i64_le_u, _op_i64_ge_s, _op_i64_ge_u,
 
         _op_f32_eq, _op_f32_ne, _op_f32_lt, _op_f32_gt, _op_f32_le, _op_f32_ge,
         _op_f64_eq, _op_f64_ne, _op_f64_lt, _op_f64_gt, _op_f64_le, _op_f64_ge,
@@ -189,13 +189,13 @@ namespace cjwasm
                 continue;
 
             case op_block:
-                *--bp = { op_block, get_u8(), dst, nullptr };
+                *--bp = { op_block, get_u8(), dst, dst_begin };
                 continue;
             case op_loop:
-                *--bp = { op_loop, get_u8(), dst, nullptr };
+                *--bp = { op_loop, get_u8(), dst, dst_begin };
                 continue;
             case op_if:
-                *--bp = { op_if, get_u8(), dst, nullptr };
+                *--bp = { op_if, get_u8(), dst, dst_begin };
                 emit(do_forward_if, dst - dst);
                 return N - 1;
 
@@ -208,13 +208,12 @@ namespace cjwasm
 
             case op_end:
                 // fix up forward branches
-                for (auto np = bp[0].leave; np != nullptr;)
+                for (auto np = bp[0].leave; np != dst_begin;)
                 {
                     auto offset = np->u32;
                     np->u32 = uint32_t(dst - np) + 1;
 
-                    np -= offset;
-                    np = nullptr; // for now, until we fix forward branche chains
+                    np = dst_begin + offset;
                 }
                 
                 if (bp == &blocks[15])
@@ -239,7 +238,7 @@ namespace cjwasm
                 }
                 else
                 {
-                    emit(do_forward_if, dst - scope.leave);
+                    emit(do_forward_if, scope.leave - dst_begin);
                     scope.leave = dst - 1;
                 }
                 return N - 1;
@@ -332,7 +331,7 @@ namespace cjwasm
             dst_end = dst + dst_size;
 
             bp = &blocks[15];
-            *bp = { op_block, bt_i32, dst, nullptr };
+            *bp = { op_block, bt_i32, dst, dst_begin };
 
             function fs[8];
             functions = fs;
