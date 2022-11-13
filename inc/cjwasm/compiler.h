@@ -117,8 +117,8 @@ namespace cjwasm
         block blocks[16];
         block* bp;
 
-        uint8_t get_code() { return *src++; }
-        uint8_t get_u8() { return *src++; }
+        uint8_t get_code() { return src < src_end ? *src++ : op_end; }
+        uint8_t get_u8() { return src < src_end ? *src++ : 0; }
 
         uint32_t get_leb128_u32()
         {
@@ -131,7 +131,6 @@ namespace cjwasm
             // TODO https://en.wikipedia.org/wiki/LEB128
             return uint32_t(int32_t(int8_t(*src++)));
         }
-
 
         uint64_t get_leb128_u64()
         {

@@ -63,7 +63,6 @@ uint8_t src2[]
     cjwasm::op_end,
     cjwasm::op_end,
     cjwasm::op_local_get, 1,
-    cjwasm::op_end,
 };
 
 cjwasm::code_t g_dst[1024];
