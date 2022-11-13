@@ -11,31 +11,40 @@ namespace cjwasm
 {
     enum : uint8_t
     {
-        op_unreachable, op_nop, op_block, op_loop, op_if, op_else,
-        op_end = 0x0b, op_br, op_br_if, op_return = 0x0f,
-        op_call = 0x10,
+        op_unreachable, op_nop, op_block, op_loop, op_if, op_else, _op_06, _op_07, _op_08, _op_09, _op_0a, op_end, op_br, op_br_if, _op_br_table, op_return,
+        
+        op_call, _op_call_indirect, _op_return_call, _op_return_call_indirect, _op_14, _op_15, _op_16, _op_17, _op_18, _op_19, op_drop, op_select, _op_1c, _op_1d, _op_1e, _op_1f,
 
-        op_drop = 0x1a, op_select,
+        op_local_get, op_local_set, op_local_tee, _op_global_get, _op_global_set, _op_table_get, _op_table_set, _op_27,
+        
+        _op_load_i32, _op_load_i64, _op_load_f32, _op_load_f64,
+        _op_load8_s_i32, _op_load8_u_i32, _op_load16_s_i32, _op_load16_u_i32, _op_load8_s_i64, _op_load8_u_i64, _op_load16_s_i64, _op_load16_u_i64, _op_load32_s_i64, _op_load32_u_i64,
 
-        op_local_get = 0x20, op_local_set, op_local_tee,
+        _op_store_i32, _op_store_i64, _op_store_f32, _op_store_f64,
+        _op_store8_i32, _op_store16_i32, _op_store8_i64, _op_store16_i64, _op_store32_i64,
+        
+        _op_memory_size,
+        _op_memory_grow,
 
-        op_const_i32 = 0x41,
-        op_const_i64,
+        op_const_i32, op_const_i64, _op_const_f32, _op_const_f64,
 
-        op_eqz_i32 = 0x45,
-        op_eq_i32,
-        op_ne_i32,
-        op_lt_s_i32,
-        op_lt_u_i32,
-        op_gt_s_i32,
-        op_gt_u_i32,
-        op_le_s_i32,
-        op_le_u_i32,
-        op_ge_s_i32,
-        op_ge_u_i32,
+        op_eqz_i32, op_eq_i32, op_ne_i32, op_lt_s_i32, op_lt_u_i32, op_gt_s_i32, op_gt_u_i32, op_le_s_i32, op_le_u_i32, op_ge_s_i32, op_ge_u_i32,
+        _op_eqz_i64, _op_eq_i64, _op_ne_i64, _op_lt_s_i64, _op_lt_u_i64, _op_gt_s_i64, _op_gt_u_i64, _op_le_s_i64, _op_le_u_i64, _op_ge_s_i64, _op_ge_u_i64,
 
-        op_add_i32 = 0x6a, op_sub_i32, op_mul_i32, op_div_s_i32, op_div_u_i32, op_rem_s_i32, op_rem_u_i32,
-        op_and_i32, op_or_i32, op_xor_i32,
+        _op_eq_f32, _op_ne_f32, _op_lt_f32, _op_gt_f32, _op_le_f32, _op_ge_f32,
+        _op_eq_f64, _op_ne_f64, _op_lt_f64, _op_gt_f64, _op_le_f64, _op_ge_f64,
+
+        _op_clz_i32, _op_ctz_i32, _op_popcnt_i32, 
+        op_add_i32, op_sub_i32, op_mul_i32, op_div_s_i32, op_div_u_i32, op_rem_s_i32, op_rem_u_i32,
+        op_and_i32, op_or_i32, op_xor_i32, _op_shl_i32, _op_shr_s_i32, _op_shr_u_i32, _op_rotl_i32, _op_rotr_i32,
+
+        _op_clz_i64, _op_ctz_i64, _op_popcnt_i64,
+        _op_add_i64, _op_sub_i64, _op_mul_i64, _op_div_s_i64, _op_div_u_i64, _op_rem_s_i64, _op_rem_u_i64,
+        _op_and_i64, _op_or_i64, _op_xor_i64, _op_shl_i64, _op_shr_s_i64, _op_shr_u_i64, _op_rotl_i64, _op_rotr_i64,
+
+        _op_abs_f32, _op_neg_f32, _op_ceil_f32, _op_floor_f32, _op_trunc_f32, _op_nearest_f32, _op_sqrt_f32, _op_add_f32, _op_sub_f32, _op_mul_f32, _op_div_f32, _op_min_f32, _op_max_f32, _op_copysign_f32,
+        _op_abs_f64, _op_neg_f64, _op_ceil_f64, _op_floor_f64, _op_trunc_f64, _op_nearest_f64, _op_sqrt_f64, _op_add_f64, _op_sub_f64, _op_mul_f64, _op_div_f64, _op_min_f64, _op_max_f64, _op_copysign_f64,
+
 
         bt_void = 0x40,
         bt_i32 = 0x7f, bt_i64 = 0x7e, bt_f32 = 0x7d, bt_f64 = 0x7c,
