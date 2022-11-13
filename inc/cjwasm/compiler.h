@@ -184,7 +184,8 @@ namespace cjwasm
             while (n == N) switch (get_code())
             {
             case op_unreachable:
-                    continue;
+                emit(trap);
+                continue;
 
             case op_nop:
                 continue;
