@@ -9,17 +9,17 @@ namespace cjwasm
     using int32_t = decltype(2147483647);
     using int64_t = decltype(9223372036854775807);
 
-    extern "C" unsigned int _lzcnt_u32(unsigned int);
-    extern "C" unsigned int _tzcnt_u32(unsigned int);
-    extern "C" unsigned int __popcnt(unsigned int);
-    extern "C" unsigned int _rotl(unsigned int, int);
-    extern "C" unsigned int _rotr(unsigned int, int);
+    extern "C" uint32_t _lzcnt_u32(uint32_t);
+    extern "C" uint32_t _tzcnt_u32(uint32_t);
+    extern "C" uint32_t __popcnt(uint32_t);
+    extern "C" uint32_t _rotl(uint32_t, int);
+    extern "C" uint32_t _rotr(uint32_t, int);
 
     extern "C" uint64_t _lzcnt_u64(uint64_t);
     extern "C" uint64_t _tzcnt_u64(uint64_t);
     extern "C" uint64_t __popcnt64(uint64_t);
-    extern "C" unsigned long long _lrotl(unsigned long long, int);
-    extern "C" unsigned long long _lrotr(unsigned long long, int);
+    extern "C" uint64_t _rotl64(uint64_t, int);
+    extern "C" uint64_t _rotr64(uint64_t, int);
 
     enum : uint8_t
     {
@@ -364,8 +364,8 @@ namespace cjwasm
             case op_i64_shl:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 << sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
             case op_i64_shr_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 >> sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
             case op_i64_shr_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 >> sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _lrotl(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _lrotr(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _rotl64(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
+            case op_i64_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _rotr64(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
 
             }
             while (n > N)
