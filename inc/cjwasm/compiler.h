@@ -25,7 +25,7 @@ namespace cjwasm
     {
         op_unreachable, op_nop, op_block, op_loop, op_if, op_else, _op_06, _op_07, _op_08, _op_09, _op_0a, op_end, op_br, op_br_if, _op_br_table, op_return,
         
-        op_call, _op_call_indirect, _op_return_call, _op_return_call_indirect, _op_14, _op_15, _op_16, _op_17, _op_18, _op_19, op_drop, op_select, _op_1c, _op_1d, _op_1e, _op_1f,
+        op_call, _op_call_indirect, _op_12, _op_13, _op_14, _op_15, _op_16, _op_17, _op_18, _op_19, op_drop, op_select, _op_select_t, _op_1d, _op_1e, _op_1f,
 
         op_local_get, op_local_set, op_local_tee, _op_global_get, _op_global_set, _op_table_get, _op_table_set, _op_27,
         
@@ -56,6 +56,38 @@ namespace cjwasm
 
         _op_f32_abs, _op_f32_neg, _op_f32_ceil, _op_f32_floor, _op_f32_trunc, _op_f32_nearest, _op_f32_sqrt, _op_f32_add, _op_f32_sub, _op_f32_mul, _op_f32_div, _op_f32_min, _op_f32_max, _op_f32_copysign,
         _op_f64_abs, _op_f64_neg, _op_f64_ceil, _op_f64_floor, _op_f64_trunc, _op_f64_nearest, _op_f64_sqrt, _op_f64_add, _op_f64_sub, _op_f64_mul, _op_f64_div, _op_f64_min, _op_f64_max, _op_f64_copysign,
+
+        op_i32_wrap_i64,
+        _op_i32_trunc_f32_s, _op_i32_trunc_f32_u, _op_i32_trunc_f64_s, _op_i32_trunc_f64_u,
+        op_i64_extend_i32_s, op_i64_extend_i32_u, 
+        
+        _op_i64_trunc_f32_s, _op_i64_trunc_f32_u, _op_i64_trunc_f64_s, _op_i64_trunc_f64_u,
+        _op_f32_convert_i32_s, _op_f32_convert_i32_u, _op_f32_convert_i64_s, _op_f32_convert_i64_u, _op_f32_demote_f64,
+        _op_f64_convert_i32_s, _op_f64_convert_i32_u, _op_f64_convert_i64_s, _op_f64_convert_i64_u, _op_f64_promote_f32,
+        _op_i32_reinterpret_f32, _op_i64_reinterpret_f64, _op_f32_reinterpret_i32, _op_f64_reinterpret_i64,
+
+        op_i32_extend8_s, op_i32_extend16_s, 
+        op_i64_extend8_s, op_i64_extend16_s, op_i64_extend32_s,
+
+        _op_c5, _op_c6, _op_c7, _op_c8, _op_c9, _op_ca, _op_cb, _op_cc, _op_cd, _op_ce, _op_cf,
+
+        _op_ref_null, _op_ref_is_null, _op_ref_func,
+
+        _op_fc = 0xfc,
+
+        _fc_i32_trunc_sat_f32_s = 0, _fc_i32_trunc_sat_f32_u, _fc_i32_trunc_sat_f64_s, _fc_i32_trunc_sat_f64_u, _fc_i64_trunc_sat_f32_s, _fc_i64_trunc_sat_f32_u, _fc_i64_trunc_sat_f64_s, _fc_i64_trunc_sat_f64_u,
+        _fc_memory_init,
+        _fc_data_drop,
+        _fc_memory_copy,
+        _fc_memory_fill,
+        _fc_table_init,
+        _fc_elem_drop,
+        _fc_table_copy,
+        _fc_table_grow,
+        _fc_table_Size,
+        _fc_table_fill,
+
+        _op_fd = 0xfd, //simd
 
         bt_void = 0x40,
         bt_i32 = 0x7f, bt_i64 = 0x7e, bt_f32 = 0x7d, bt_f64 = 0x7c,
@@ -226,7 +258,7 @@ namespace cjwasm
 
                     np = dst_begin + offset;
                 }
-                
+
                 if (bp == &blocks[15])
                 {
                     emit_return();
@@ -264,11 +296,11 @@ namespace cjwasm
                 emit([](ip_t ip, sp_t sp)
                     {
                         sp[N + 1].ip = ip + 2;
-                        sp[N + 2].sp = sp;
+                sp[N + 2].sp = sp;
 
-                        auto n = ip[0].u32;
-                        ip = ip[1].ip;
-                        ip->code(ip + 1, sp + N - n);
+                auto n = ip[0].u32;
+                ip = ip[1].ip;
+                ip->code(ip + 1, sp + N - n);
                     });
                 dst[0].u32 = f.argument_count;
                 dst[1].ip = f.ip;
@@ -297,7 +329,7 @@ namespace cjwasm
                 emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; ip[1].code(ip + 2, sp); }, get_leb128_u64());
                 return compile<N + 1>(N + 1);
 
-            // 32 bit booleans
+                // 32 bit booleans
             case op_i32_eqz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = sp[N].u32 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
 
             case op_i32_eq: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 == sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
@@ -311,7 +343,7 @@ namespace cjwasm
             case op_i32_ge_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 >= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
             case op_i32_ge_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
 
-            // 64 bit booleans
+                // 64 bit booleans
             case op_i64_eqz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = sp[N].u64 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
 
             case op_i64_eq: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 == sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
@@ -325,10 +357,10 @@ namespace cjwasm
             case op_i64_ge_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 >= sp[N].i64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
             case op_i64_ge_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
 
-            // 32 bit alu
+                // 32 bit alu
             case op_i32_clz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = _lzcnt_u32(sp[N].u32); ip->code(ip + 1, sp); }); continue;
             case op_i32_ctz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = _tzcnt_u32(sp[N].u32); ip->code(ip + 1, sp); }); continue;
-            case op_i32_popcnt: emit([](ip_t ip, sp_t sp) { sp[N].u32 = __popcnt(sp[N].u32); ip->code(ip + 1, sp); }); continue;                
+            case op_i32_popcnt: emit([](ip_t ip, sp_t sp) { sp[N].u32 = __popcnt(sp[N].u32); ip->code(ip + 1, sp); }); continue;
 
             case op_i32_add:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 + sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
             case op_i32_sub:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 - sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
@@ -346,7 +378,7 @@ namespace cjwasm
             case op_i32_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = _rotl(sp[N - 1].u32, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
             case op_i32_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = _rotr(sp[N - 1].u32, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
 
-            // 64 bit alu
+                // 64 bit alu
             case op_i64_clz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = _lzcnt_u64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
             case op_i64_ctz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = _tzcnt_u64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
             case op_i64_popcnt: emit([](ip_t ip, sp_t sp) { sp[N].u64 = __popcnt64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
@@ -367,9 +399,21 @@ namespace cjwasm
             case op_i64_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _rotl64(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
             case op_i64_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _rotr64(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
 
+                // misc int
+            case op_i32_wrap_i64: /*emit([](ip_t ip, sp_t sp) { sp[N].i32 = sp[N].i64; ip->code(ip + 1, sp); });*/ continue;
+            case op_i64_extend_i32_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = sp[N].i32; ip->code(ip + 1, sp); }); continue;
+            case op_i64_extend_i32_u: emit([](ip_t ip, sp_t sp) { sp[N].u64 = sp[N].u32; ip->code(ip + 1, sp); }); continue;
+            case op_i32_extend8_s: emit([](ip_t ip, sp_t sp) { sp[N].i32 = int8_t(sp[N].u32); ip->code(ip + 1, sp); }); continue;
+            case op_i32_extend16_s: emit([](ip_t ip, sp_t sp) { sp[N].i32 = int16_t(sp[N].u32); ip->code(ip + 1, sp); }); continue;
+            case op_i64_extend8_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int8_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+            case op_i64_extend16_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int16_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+            case op_i64_extend32_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int32_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+            
             }
+
             while (n > N)
                 n = compile<N + 1>(n);
+
             return n;
         }
         // compile error
