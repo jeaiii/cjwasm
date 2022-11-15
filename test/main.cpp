@@ -54,7 +54,7 @@ cjwasm::uint8_t src2[]
     cjwasm::op_i32_mul,
     cjwasm::op_local_set, 1,
     cjwasm::op_local_get, 0,
-    cjwasm::op_i32_const, cjwasm::uint8_t(-1),
+    cjwasm::op_i32_const, 0x7f, // -1 in leb128s 
     cjwasm::op_i32_add,
     cjwasm::op_local_tee, 0,
     cjwasm::op_i32_const, 1,

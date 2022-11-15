@@ -161,22 +161,76 @@ namespace cjwasm
         uint8_t get_code() { return src < src_end ? *src++ : op_end; }
         uint8_t get_u8() { return src < src_end ? *src++ : 0; }
 
+        // https://en.wikipedia.org/wiki/LEB128
         uint32_t get_leb128_u32()
         {
-            // TODO https://en.wikipedia.org/wiki/LEB128
-            return *src++;
+            uint32_t u0 = get_u8();
+            if (u0 < 128)
+                return u0;
+            uint32_t u1 = get_u8();
+            if (u1 < 128)
+                return (u1 << 7) ^ u0 ^ 128;
+            uint32_t u2 = get_u8();
+            if (u2 < 128)
+                return (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x00004080;
+            uint32_t u3 = get_u8();
+            if (u3 < 128)
+                return (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x00204080;
+            uint32_t u4 = get_u8();
+            return (u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x10204080;
         }
 
+        // returns uint32 on purpose
         uint32_t get_leb128_i32()
         {
-            // TODO https://en.wikipedia.org/wiki/LEB128
-            return uint32_t(int32_t(int8_t(*src++)));
+            uint32_t u0 = get_u8();
+            if (u0 < 128)
+                return int32_t(u0 << (32 - 7)) >> (32 - 7);
+            uint32_t u1 = get_u8();
+            if (u1 < 128)
+                return int32_t(((u1 << 7) ^ u0 ^ 128) << (32 - 14)) >> (32 - 14);
+            uint32_t u2 = get_u8();
+            if (u2 < 128)
+                return int32_t(((u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x00004080) << (32 - 21)) >> (32 - 21);
+            uint32_t u3 = get_u8();
+            if (u3 < 128)
+                return int32_t(((u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x00204080) << (32 - 28)) >> (32 - 28);
+            uint32_t u4 = get_u8();
+            return int32_t((u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x10204080);
         }
 
-        uint64_t get_leb128_u64()
+        // returns uint64 on purpose
+        uint64_t get_leb128_i64()
         {
-            // TODO https://en.wikipedia.org/wiki/LEB128
-            return *src++;
+            uint64_t u0 = get_u8();
+            if (u0 < 128)
+                return int64_t(u0 << (64 - 7)) >> (64 - 7);
+            uint64_t u1 = get_u8();
+            if (u1 < 128)
+                return int64_t(((u1 << 7) ^ u0 ^ 128) << (64 - 14)) >> (64 - 14);
+            uint64_t u2 = get_u8();
+            if (u2 < 128)
+                return int64_t(((u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x00004080) << (64 - 21)) >> (64 - 21);
+            uint64_t u3 = get_u8();
+            if (u3 < 128)
+                return int64_t(((u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x00204080) << (64 - 28)) >> (64 - 28);
+            uint64_t u4 = get_u8();
+            if (u4 < 128)
+                return int64_t(((u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x10204080) << (64 - 35)) >> (64 - 35);
+            uint64_t u5 = get_u8();
+            if (u5 < 128)
+                return int64_t(((u5 << 35) ^ (u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x810204080) << (64 - 42)) >> (64 - 42);
+            uint64_t u6 = get_u8();
+            if (u6 < 128)
+                return int64_t(((u6 << 42) ^ (u5 << 35) ^ (u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x40810204080) << (64 - 49)) >> (64 - 49);
+            uint64_t u7 = get_u8();
+            if (u7 < 128)
+                return int64_t(((u7 << 49) ^ (u6 << 42) ^ (u5 << 35) ^ (u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x2040810204080) << (64 - 56)) >> (64 - 56);
+            uint64_t u8 = get_u8();
+            if (u8 < 128)
+                return int64_t(((u8 << 56) ^ (u7 << 49) ^ (u6 << 42) ^ (u5 << 35) ^ (u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x2040810204080) << (64 - 63)) >> (64 - 63);
+            uint64_t u9 = get_u8();
+                return int64_t((u9 << 63) ^ (u8 << 56) ^ (u7 << 49) ^ (u6 << 42) ^ (u5 << 35) ^ (u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x102040810204080);
         }
 
         static uint32_t operand_u32(ip_t ip) { return ip->u32; }
@@ -326,7 +380,7 @@ namespace cjwasm
                 emit([](ip_t ip, sp_t sp) { sp[N + 1].i32 = ip->i32; ip[1].code(ip + 2, sp); }, get_leb128_i32());
                 return compile<N + 1>(N + 1);
             case op_i64_const:
-                emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; ip[1].code(ip + 2, sp); }, get_leb128_u64());
+                emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; ip[1].code(ip + 2, sp); }, get_leb128_i64());
                 return compile<N + 1>(N + 1);
 
                 // 32 bit booleans
