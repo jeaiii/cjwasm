@@ -350,11 +350,11 @@ namespace cjwasm
                 emit([](ip_t ip, sp_t sp)
                     {
                         sp[N + 1].ip = ip + 2;
-                sp[N + 2].sp = sp;
+                        sp[N + 2].sp = sp;
 
-                auto n = ip[0].u32;
-                ip = ip[1].ip;
-                ip->code(ip + 1, sp + N - n);
+                        auto n = ip[0].u32;
+                        ip = ip[1].ip;
+                        ip->code(ip + 1, sp + N - n);
                     });
                 dst[0].u32 = f.argument_count;
                 dst[1].ip = f.ip;
