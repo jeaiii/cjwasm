@@ -245,6 +245,10 @@ bool parse()
                     std::cout << "]";
                 }
                 std::cout << "\n";
+
+                cjwasm::compiler c;
+                c.compile_function(3, end - s3.src, s3.src, 1024, g_dst);
+
                 s3.src = end;
             }
             break;
@@ -267,13 +271,16 @@ bool parse()
 int main()
 {
     parse();
+    auto ma = [](int x, int y, int z) { return cjwasm::call<int>(g_dst, x, y, z); };
+
+    std::cout << "ma(3, 4, 5) -> " << ma(3, 4, 5) << "\n";
 
     compile(src2, g_dst);
 
-    auto mul_add = [](int x, int y)
+    auto test = [](int x, int y)
     {
         return cjwasm::call<int>(g_dst, x, y);
     };
 
-    return mul_add(5, 5);
+    return test(5, 5);
 }
