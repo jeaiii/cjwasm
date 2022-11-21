@@ -65,6 +65,12 @@ cjwasm::uint8_t src2[]
     cjwasm::op_local_get, 1,
 };
 
+cjwasm::uint8_t src3[] =
+{
+    0, 97, 115, 109, 1, 0, 0, 0,
+    1, 136, 128, 128, 128, 0, 1, 96, 3, 127, 127, 127, 1, 127, 3, 130, 128, 128, 128, 0, 1, 0, 4, 132, 128, 128, 128, 0, 1, 112, 0, 0, 5, 131, 128, 128, 128, 0, 1, 0, 1, 6, 129, 128, 128, 128, 0, 0, 7, 143, 128, 128, 128, 0, 2, 6, 109, 101, 109, 111, 114, 121, 2, 0, 2, 109, 97, 0, 0, 10, 144, 128, 128, 128, 0, 1, 138, 128, 128, 128, 0, 0, 32, 1, 32, 0, 108, 32, 2, 106, 11
+};
+
 cjwasm::code_t g_dst[1024];
 
 template<unsigned N> void compile(cjwasm::uint8_t (&src)[N], cjwasm::code_t dst[])
@@ -73,8 +79,195 @@ template<unsigned N> void compile(cjwasm::uint8_t (&src)[N], cjwasm::code_t dst[
     c.compile_function(2, N, src, 1024, dst);
 }
 
+#include <iostream>
+
+
+bool parse()
+{
+    cjwasm::source s3{ src3, src3, src3 + sizeof(src3) };
+
+    auto out_type = [](uint8_t bt)
+    {
+        switch (bt)
+        {
+        case cjwasm::bt_i32: std::cout << "i32"; break;
+        case cjwasm::bt_i64: std::cout << "i64"; break;
+        case cjwasm::bt_f32: std::cout << "f32"; break;
+        case cjwasm::bt_f64: std::cout << "f64"; break;
+        default: std::cout << "???"; break;
+        }
+    };
+
+    auto underflow = [&]()
+    {
+        return s3.src >= s3.src_end;
+    };
+
+    if (s3.get_u8() == '\0' && s3.get_u8() == 'a' && s3.get_u8() == 's' && s3.get_u8() == 'm')
+    {
+        uint32_t version = s3.get_u8() + (uint32_t(s3.get_u8()) << 8) + (uint32_t(s3.get_u8()) << 16) + (uint32_t(s3.get_u8()) << 24);
+        std::cout << "wasm file version " << version << std::endl;
+        if (version != 1)
+        {
+            std::cout << "ERROR - bad version\n";
+            return false;
+        }
+    }
+    else
+    {
+        std::cout << "ERROR - bad wasm file\n";
+        return false;
+    }
+    for (;s3.src < s3.src_end;)
+    {
+        int section = s3.get_u8();
+
+        uint32_t length = s3.get_leb128_u32();
+        if (s3.src + length > s3.src_end)
+        {
+            std::cout << "ERROR - section length out of scope\n";
+            return false;
+        }
+        switch (section)
+        {
+        case 0:
+            std::cout << section <<": custom section [" << length << "]\n";
+            s3.src += length;
+            break;
+        case 1:
+            std::cout << section << ": type section [" << length << "]\n";
+            for (uint32_t count = s3.get_leb128_u32(); count != 0; count -= 1)
+            {
+                if (s3.get_u8() != 0x60)
+                {
+                    std::cout << "ERROR - expected function type 0x60\n";
+                    return false;
+
+                }
+
+                uint32_t argc = s3.get_leb128_u32();
+                if (underflow()) 
+                    return false;
+
+                std::cout << "(";
+                for (uint32_t i = 0; i < argc; ++i)
+                {
+                    if (i != 0)
+                        std::cout << ", ";
+                    out_type(s3.get_u8());
+                    if (underflow())
+                        return false;
+                }
+                std::cout << ") => (";
+                uint32_t retc = s3.get_leb128_u32();
+                for (uint32_t i = 0; i < retc; ++i)
+                {
+                    if (i != 0)
+                        std::cout << ", ";
+                    out_type(s3.get_u8());
+                    if (underflow())
+                        return false;
+                }
+                std::cout << ")\n";
+
+                if (underflow())
+                    return false;
+            }
+            break;
+        case 2:
+            std::cout << section << ": import section [" << length << "]\n";
+            s3.src += length;
+            break;
+        case 3:
+            std::cout << section << ": function section [" << length << "]\n";
+            for (uint32_t count = s3.get_leb128_u32(), i = 0; i < count; ++i)
+            {
+                std::cout << "    function #" << i << ": typeidx " << s3.get_leb128_u32() << "\n";
+            }
+            break;
+        case 4:
+            std::cout << section << ": table section [" << length << "]\n";
+            s3.src += length;
+            break;
+        case 5:
+            std::cout << section << ": memory section [" << length << "]\n";
+            s3.src += length;
+            break;
+        case 6:
+            std::cout << section << ": global section [" << length << "]\n";
+            s3.src += length;
+            break;
+        case 7:
+            std::cout << section << ": export section [" << length << "]\n";
+            for (uint32_t count = s3.get_leb128_u32(), i = 0; i < count; ++i)
+            {
+                std::cout << "    export #" << i << ": name = '";
+                uint32_t name_length = s3.get_leb128_u32();
+                for (uint32_t i = 0; i < name_length; ++i)
+                    std::cout << s3.get_u8();
+                std::cout << "'";
+                int kind = s3.get_u8();
+                std::cout << "[" << kind << "] ";
+                uint32_t idx = s3.get_leb128_u32();
+                switch (kind)
+                {
+                case 0: std::cout << "funcidx "; break;
+                case 1: std::cout << "tableidx "; break;
+                case 2: std::cout << "memidx "; break;
+                case 3: std::cout << "globalidx "; break;
+                default: std::cout << "???idx "; break;
+                }
+                std::cout << " " << idx << "\n";
+            }
+            break;
+        case 8:
+            std::cout << section << ": start section [" << length << "]\n";
+            s3.src += length;
+            break;
+        case 9:
+            std::cout << section << ": element section [" << length << "]\n";
+            s3.src += length;
+            break;
+        case 10:
+            std::cout << section << ": code section [" << length << "]\n";
+            for (uint32_t count = s3.get_leb128_u32(), i = 0; i < count; ++i)
+            {
+                uint32_t size = s3.get_leb128_u32();
+                auto end = s3.src + size;
+                uint32_t localc = s3.get_leb128_u32();
+                std::cout << "    code #" << i << ": locals = " << localc;
+                for (uint32_t i = 0; i < localc; ++i)
+                {
+                    uint32_t n = s3.get_leb128_u32();
+                    uint8_t type = s3.get_u8();
+                    std::cout << ", [" << n << "; ";
+                    out_type(type);
+                    std::cout << "]";
+                }
+                std::cout << "\n";
+                s3.src = end;
+            }
+            break;
+        case 11:
+            std::cout << section << ": data section [" << length << "]\n";
+            s3.src += length;
+            break;
+        case 12:
+            std::cout << section << ": data count section [" << length << "]\n";
+            s3.src += length;
+            break;
+        default:
+            std::cout << section << ": unknown section [" << length << "]\n";
+            s3.src += length;
+            break;
+        }
+    }
+}
+
 int main()
 {
+    parse();
+
     compile(src2, g_dst);
 
     auto mul_add = [](int x, int y)

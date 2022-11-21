@@ -133,32 +133,13 @@ namespace cjwasm
         int return_count;
     };
 
-    struct compiler
+    struct source
     {
-
         uint8_t const* src_begin;
         uint8_t const* src;
         uint8_t const* src_end;
 
-        code_t* dst_begin;
-        code_t* dst;
-        code_t* dst_end;
-
-        function* functions;
-        function* self;
-
-        struct block
-        {
-            uint8_t op;
-            uint8_t type;
-            code_t* enter;
-            code_t* leave;
-        };
-
-        block blocks[16];
-        block* bp;
-
-        uint8_t get_code() { return src < src_end ? *src++ : op_end; }
+        uint8_t get_op() { return src < src_end ? *src++ : op_end; }
         uint8_t get_u8() { return src < src_end ? *src++ : 0; }
 
         // https://en.wikipedia.org/wiki/LEB128
@@ -230,8 +211,29 @@ namespace cjwasm
             if (u8 < 128)
                 return int64_t(((u8 << 56) ^ (u7 << 49) ^ (u6 << 42) ^ (u5 << 35) ^ (u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x102040810204080) << (64 - 63)) >> (64 - 63);
             uint64_t u9 = get_u8();
-                return int64_t((u9 << 63) ^ (u8 << 56) ^ (u7 << 49) ^ (u6 << 42) ^ (u5 << 35) ^ (u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x8102040810204080);
+            return int64_t((u9 << 63) ^ (u8 << 56) ^ (u7 << 49) ^ (u6 << 42) ^ (u5 << 35) ^ (u4 << 28) ^ (u3 << 21) ^ (u2 << 14) ^ (u1 << 7) ^ u0 ^ 0x8102040810204080);
         }
+    };
+
+    struct compiler : source
+    {
+        code_t* dst_begin;
+        code_t* dst;
+        code_t* dst_end;
+
+        function* functions;
+        function* self;
+
+        struct block
+        {
+            uint8_t op;
+            uint8_t type;
+            code_t* enter;
+            code_t* leave;
+        };
+
+        block blocks[16];
+        block* bp;
 
         static uint32_t operand_u32(ip_t ip) { return ip->u32; }
 
@@ -276,7 +278,7 @@ namespace cjwasm
                     }, uint32_t(self->return_count));
             };
 
-            while (n == N) switch (get_code())
+            while (n == N) switch (get_op())
             {
             case op_unreachable:
                 emit(trap);
