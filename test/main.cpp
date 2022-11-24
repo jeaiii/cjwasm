@@ -136,11 +136,11 @@ bool parse()
             break;
         case 1:
             std::cout << section << ": type section [" << length << "]\n";
-            for (uint32_t count = s3.get_leb128_u32(); count != 0; count -= 1)
+            for (uint32_t count = s3.get_leb128_u32(), i = 0; i < count; ++i)
             {
                 if (s3.get_u8() != 0x60)
                 {
-                    std::cout << "ERROR - expected function type 0x60\n";
+                    std::cout << "ERROR - expected function type != 0x60\n";
                     return false;
 
                 }
@@ -149,7 +149,7 @@ bool parse()
                 if (underflow()) 
                     return false;
 
-                std::cout << "(";
+                std::cout << "    type #" << i << ": func (";
                 for (uint32_t i = 0; i < argc; ++i)
                 {
                     if (i != 0)
@@ -182,7 +182,7 @@ bool parse()
             std::cout << section << ": function section [" << length << "]\n";
             for (uint32_t count = s3.get_leb128_u32(), i = 0; i < count; ++i)
             {
-                std::cout << "    function #" << i << ": typeidx " << s3.get_leb128_u32() << "\n";
+                std::cout << "    function #" << i << ": typeidx = " << s3.get_leb128_u32() << "\n";
             }
             break;
         case 4:
@@ -205,19 +205,18 @@ bool parse()
                 uint32_t name_length = s3.get_leb128_u32();
                 for (uint32_t i = 0; i < name_length; ++i)
                     std::cout << s3.get_u8();
-                std::cout << "'";
+                std::cout << "', ";
                 int kind = s3.get_u8();
-                std::cout << "[" << kind << "] ";
                 uint32_t idx = s3.get_leb128_u32();
                 switch (kind)
                 {
-                case 0: std::cout << "funcidx "; break;
-                case 1: std::cout << "tableidx "; break;
-                case 2: std::cout << "memidx "; break;
-                case 3: std::cout << "globalidx "; break;
-                default: std::cout << "???idx "; break;
+                case 0: std::cout << "funcidx_0 = "; break;
+                case 1: std::cout << "tableidx_1 = "; break;
+                case 2: std::cout << "memidx_2 = "; break;
+                case 3: std::cout << "globalidx_3 = "; break;
+                default: std::cout << "???inx_" << kind << " = "; break;
                 }
-                std::cout << " " << idx << "\n";
+                std::cout << idx << "\n";
             }
             break;
         case 8:
