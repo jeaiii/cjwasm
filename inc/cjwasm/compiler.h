@@ -245,7 +245,7 @@ namespace cjwasm
         void emit(void (*f)(ip_t ip, sp_t sp), decltype("" - "") a) { emit(f), emit(uint32_t(a)); }
 
         // unconditional branches don't depend on stack depth so handle them outside compile so there aren't unique ones per stack depth
-        void do_branch(block& scope)
+        void emit_branch(block& scope)
         {
             if (scope.op == op_loop)
             {
@@ -263,7 +263,18 @@ namespace cjwasm
         template<int N>
         int compile(int n)
         {
-            auto do_forward_if = [](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip + offset + 1)->code(ip + offset + 2, sp); };
+            auto emit_forward_if = [this](decltype("" - "") a)
+            {
+                emit([](ip_t ip, sp_t sp)
+                    {
+                        auto jump = operand_u32(ip);
+                        ++ip;
+                        jump = sp[N].i32 == 0 ? 0 : jump;
+                        ip += jump;
+                        ip->code(ip + 1, sp);
+                    }, uint32_t(a));
+            };
+
             auto emit_return = [this]
             {
                 emit([](ip_t ip, sp_t sp)
@@ -295,14 +306,14 @@ namespace cjwasm
                 continue;
             case op_if:
                 *--bp = { op_if, get_u8(), dst, dst_begin };
-                emit(do_forward_if, dst - dst);
+                emit_forward_if(0);
                 return N - 1;
 
             case op_else:
                 // fix if branch
                 (uint32_t&)bp[0].enter[1] = uint32_t(dst - bp[0].enter);
                 // branch to leave
-                do_branch(bp[0]);
+                emit_branch(bp[0]);
                 continue;
 
             case op_end:
@@ -324,7 +335,7 @@ namespace cjwasm
                 continue;
 
             case op_br:
-                do_branch(bp[get_leb128_u32()]);
+                emit_branch(bp[get_leb128_u32()]);
                 continue;
 
             case op_br_if:
@@ -337,7 +348,7 @@ namespace cjwasm
                 }
                 else
                 {
-                    emit(do_forward_if, scope.leave - dst_begin);
+                    emit_forward_if(scope.leave - dst_begin);
                     scope.leave = dst - 1;
                 }
                 return N - 1;
@@ -350,14 +361,14 @@ namespace cjwasm
             {
                 auto const& f = functions[get_leb128_u32()];
                 emit([](ip_t ip, sp_t sp)
-                    {
-                        sp[N + 1].ip = ip + 2;
-                        sp[N + 2].sp = sp;
+                {
+                    sp[N + 1].ip = ip + 2;
+                    sp[N + 2].sp = sp;
 
-                        auto n = ip[0].u32;
-                        ip = ip[1].ip;
-                        ip->code(ip + 1, sp + N - n);
-                    });
+                    auto n = ip[0].u32;
+                    ip = ip[1].ip;
+                    ip->code(ip + 1, sp + N - n);
+                });
                 dst[0].u32 = f.argument_count;
                 dst[1].ip = f.ip;
                 dst += 2;
@@ -369,8 +380,18 @@ namespace cjwasm
                 emit([](ip_t ip, sp_t sp) { if (sp[N].i32 != 0) sp[N - 2] = sp[N - 1]; ip->code(ip + 1, sp); });
                 return N - 2;
             case op_local_get:
-                emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[operand_u32(ip)]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
+            {
+                auto slot = get_leb128_u32();
+                switch (slot)
+                {
+                case 0: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[0]; ip->code(ip + 1, sp); }); break;
+                case 1: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[1]; ip->code(ip + 1, sp); }); break;
+                case 2: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[2]; ip->code(ip + 1, sp); }); break;
+                case 3: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[3]; ip->code(ip + 1, sp); }); break;
+                default: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[operand_u32(ip)]; ip[1].code(ip + 2, sp); }, slot); break;
+                }
                 return compile<N + 1>(N + 1);
+            }
             case op_local_set:
                 emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
                 return N - 1;
