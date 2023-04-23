@@ -84,7 +84,7 @@ namespace cjwasm
         _fc_elem_drop,
         _fc_table_copy,
         _fc_table_grow,
-        _fc_table_Size,
+        _fc_table_size,
         _fc_table_fill,
 
         _op_fd = 0xfd, //simd
@@ -109,22 +109,53 @@ namespace cjwasm
 
     using code_t = value_t;
 
-    void trap(ip_t, sp_t sp) { }
-
-    template<class T, size_t N = 128, class...Ts> T call(ip_t ip, Ts...ts)
+    struct rt_t
     {
-        value_t stack[N];
+        value_t values[512];
+        char memory[64 * 1024];
 
-        size_t i = 0;
-        int _[]{ ((Ts&)stack[i++] = ts, 0)... };
+        struct m2 { char data[2]; };
+        struct m4 { char data[4]; };
+        struct m8 { char data[8]; };
 
-        value_t done;
-        done.code = trap;
-        stack[sizeof...(Ts) + 0].ip = &done;
-        stack[sizeof...(Ts) + 1].sp = nullptr;
-        ip->code(ip + 1, stack);
-        return (T const&)stack[0];
-    }
+        uint64_t load8u(unsigned n) { return *reinterpret_cast<uint8_t const*>(memory + n); }
+        uint64_t load16u(unsigned n) { return __builtin_bit_cast(uint16_t, *reinterpret_cast<m2 const*>(memory + n)); }
+        uint64_t load32u(unsigned n) { return __builtin_bit_cast(uint32_t, *reinterpret_cast<m4 const*>(memory + n)); }
+        uint64_t load8s(unsigned n) { return *reinterpret_cast<int8_t const*>(memory + n); }
+        uint64_t load16s(unsigned n) { return __builtin_bit_cast(int16_t, *reinterpret_cast<m2 const*>(memory + n)); }
+        uint64_t load32s(unsigned n) { return __builtin_bit_cast(int32_t, *reinterpret_cast<m4 const*>(memory + n)); }
+        uint64_t load64(unsigned n) { return __builtin_bit_cast(uint64_t, *reinterpret_cast<m8 const*>(memory + n)); }
+
+        void store8(unsigned n, uint64_t x) { *reinterpret_cast<uint8_t*>(memory + n) = uint8_t(x); }
+        void store16(unsigned n, uint64_t x) { *reinterpret_cast<m2*>(memory + n) = __builtin_bit_cast(m2, uint16_t(x)); }
+        void store32(unsigned n, uint64_t x) { *reinterpret_cast<m4*>(memory + n) = __builtin_bit_cast(m4, uint32_t(x)); }
+        void store64(unsigned n, uint64_t x) { *reinterpret_cast<m8*>(memory + n) = __builtin_bit_cast(m8, x); }
+    };
+
+    #define JCWASM_ARGS ip_t ip, sp_t sp
+
+    void trap(JCWASM_ARGS) { }
+
+    template<class T, class...Ts> struct fn
+    {
+        ip_t ip;
+
+        T operator()(Ts...ts) const
+        {
+            value_t done;
+            value_t stack[128];
+            {
+                unsigned i = 0;
+                done.code = trap;
+                (((Ts&)stack[i++] = ts), ...);
+            }
+
+            stack[sizeof...(Ts)].ip = &done;
+            stack[sizeof...(Ts) + 1].sp = nullptr;
+            ip->code(ip + 1, stack);
+            return (T const&)stack[0];
+        }
+    };
 
     struct function
     {
@@ -260,6 +291,60 @@ namespace cjwasm
             }
         }
 
+        template<int N, int Ac> void compile_call(function const& f)
+        {
+            if constexpr (N > Ac)
+            {
+                if (f.argument_count > Ac)
+                    compile_call<N, Ac + 1>(f);
+                else
+                    emit([](ip_t ip, sp_t sp)
+                        {
+                            sp[N + 1].ip = ip + 1;
+                            sp[N + 2].sp = sp;
+
+                            ip = ip[0].ip;
+                            ip->code(ip + 1, 1 + N - Ac + sp);
+                        }), dst[0].ip = f.ip, dst += 1;
+            }
+        }
+
+        // maybe we should encode delta sp in call as call, addr, delta
+        // then we don't need to push and pop sp from the stack
+        
+        // call:
+        // sp[N].ip = ip
+        // jump = ip[0].ip;
+        // assert(ip[1].u32 == 1 + N - Ac)
+        // ip = ip[0].ip;
+        // code(ip + 1, 1 + N - Ac + sp);
+
+        // return:
+        // r_ip = sp[N + 1 - 2 - Rc].ip
+        // pop = r_ip[1].u32
+        // sp[i] = sp[N + 1 - Rc + i]
+        // r_ip[2].code(r_ip + 3, sp - pop)
+
+        template<int N, int Rc> void compile_return()
+        {
+            if constexpr (N > Rc)
+            {
+                if (self->return_count > Rc)
+                    compile_return<N, Rc + 1>();
+                else
+                    emit([](ip_t ip, sp_t sp)
+                        {
+                            auto return_ip = sp[N + 1 - 2 - Rc].ip;
+                            auto return_sp = sp[N + 1 - 1 - Rc].sp;
+
+                            for (int i = 0; i < Rc; ++i)
+                                sp[i] = sp[N + 1 - Rc + i];
+
+                            return_ip->code(return_ip + 1, return_sp);
+                        });
+            }
+        }
+
         template<int N>
         int compile(int n)
         {
@@ -275,223 +360,211 @@ namespace cjwasm
                     }, uint32_t(a));
             };
 
-            auto emit_return = [this]
+            for (;;)
             {
-                emit([](ip_t ip, sp_t sp)
+
+                if (n < N)
+                    return n;
+
+                if (n > N)
+                    n = compile<N + 1>(n);
+
+                while (n == N) {
+                    switch (get_op())
                     {
-                        auto n = ip[0].u32;
-                        auto return_ip = sp[N + 1 - 2 - n].ip;
-                        auto return_sp = sp[N + 1 - 1 - n].sp;
-                        for (uint32_t i = 0; i < n; ++i)
-                            sp[i] = sp[N + 1 - n + i];
+                    case op_unreachable:
+                        emit(trap);
+                        continue;
 
-                        return_ip->code(return_ip + 1, return_sp);
-                    }, uint32_t(self->return_count));
-            };
+                    case op_nop:
+                        continue;
 
-            while (n == N) switch (get_op())
-            {
-            case op_unreachable:
-                emit(trap);
-                continue;
+                    case op_block:
+                        *--bp = { op_block, get_u8(), dst, dst_begin };
+                        continue;
+                    case op_loop:
+                        *--bp = { op_loop, get_u8(), dst, dst_begin };
+                        continue;
+                    case op_if:
+                        *--bp = { op_if, get_u8(), dst, dst_begin };
+                        emit_forward_if(0);
+                        return N - 1;
 
-            case op_nop:
-                continue;
+                    case op_else:
+                        // fix if branch
+                        (uint32_t&)bp[0].enter[1] = uint32_t(dst - bp[0].enter);
+                        // branch to leave
+                        emit_branch(bp[0]);
+                        continue;
 
-            case op_block:
-                *--bp = { op_block, get_u8(), dst, dst_begin };
-                continue;
-            case op_loop:
-                *--bp = { op_loop, get_u8(), dst, dst_begin };
-                continue;
-            case op_if:
-                *--bp = { op_if, get_u8(), dst, dst_begin };
-                emit_forward_if(0);
-                return N - 1;
+                    case op_end:
+                        // fix up forward branches
+                        for (auto np = bp[0].leave; np != dst_begin;)
+                        {
+                            auto offset = np->u32;
+                            np->u32 = uint32_t(dst - np) - 1;// +1;
 
-            case op_else:
-                // fix if branch
-                (uint32_t&)bp[0].enter[1] = uint32_t(dst - bp[0].enter);
-                // branch to leave
-                emit_branch(bp[0]);
-                continue;
+                            np = dst_begin + offset;
+                        }
 
-            case op_end:
-                // fix up forward branches
-                for (auto np = bp[0].leave; np != dst_begin;)
-                {
-                    auto offset = np->u32;
-                    np->u32 = uint32_t(dst - np) + 1;
+                        if (bp == &blocks[15])
+                        {
+                            compile_return<N, 0>();
+                            return 0;
+                        }
+                        ++bp;
+                        continue;
 
-                    np = dst_begin + offset;
+                    case op_br:
+                        emit_branch(bp[get_leb128_u32()]);
+                        continue;
+
+                    case op_br_if:
+                    {
+                        auto& scope = bp[get_leb128_u32()];
+                        if (scope.op == op_loop)
+                        {
+                            // branch back
+                            emit([](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip - offset + 1)->code(ip - offset + 2, sp); }, dst - scope.enter + 2);
+                        }
+                        else
+                        {
+                            emit_forward_if(scope.leave - dst_begin);
+                            scope.leave = dst - 1;
+                        }
+                        return N - 1;
+                    }
+
+                    case op_return:
+                        compile_return<N, 0>();
+                        n -= self->return_count;
+                        continue;
+                    case op_call:
+                    {
+                        auto const& f = functions[get_leb128_u32()];
+                        compile_call<N, 0>(f);
+                        n += f.return_count - f.argument_count;
+                        continue;
+                    }
+                    case op_drop: return N - 1;
+                    case op_select:
+                        emit([](ip_t ip, sp_t sp) { if (sp[N].i32 != 0) sp[N - 2] = sp[N - 1]; ip->code(ip + 1, sp); });
+                        return N - 2;
+                    case op_local_get:
+                    {
+                        auto slot = get_leb128_u32();
+                        switch (slot)
+                        {
+                        case 0: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[0]; ip->code(ip + 1, sp); }); break;
+                        case 1: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[1]; ip->code(ip + 1, sp); }); break;
+                        case 2: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[2]; ip->code(ip + 1, sp); }); break;
+                        case 3: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[3]; ip->code(ip + 1, sp); }); break;
+                        default: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[operand_u32(ip)]; ip[1].code(ip + 2, sp); }, slot); break;
+                        }
+                        ++n;
+                        continue;
+
+                    }
+                    case op_local_set:
+                        emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
+                        return N - 1;
+                    case op_local_tee:
+                        emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
+                        continue;
+
+                    case op_i32_const:
+                        emit([](ip_t ip, sp_t sp) { sp[N + 1].i32 = ip->i32; ip[1].code(ip + 2, sp); }, get_leb128_i32());
+                        ++n;
+                        continue;
+                    case op_i64_const:
+                        emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; ip[1].code(ip + 2, sp); }, get_leb128_i64());
+                        ++n;
+                        continue;
+
+                        // 32 bit booleans
+                    case op_i32_eqz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = sp[N].u32 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
+
+                    case op_i32_eq: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 == sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_ne: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 != sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_lt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 < sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_lt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 < sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_gt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 > sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_gt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 > sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_le_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 <= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_le_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 <= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_ge_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 >= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_ge_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+
+                        // 64 bit booleans
+                    case op_i64_eqz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = sp[N].u64 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
+
+                    case op_i64_eq: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 == sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_ne: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 != sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_lt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 < sp[N].i64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_lt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 < sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_gt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 > sp[N].i64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_gt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 > sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_le_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 <= sp[N].i64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_le_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 <= sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_ge_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 >= sp[N].i64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_ge_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
+
+                        // 32 bit alu
+                    case op_i32_clz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = _lzcnt_u32(sp[N].u32); ip->code(ip + 1, sp); }); continue;
+                    case op_i32_ctz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = _tzcnt_u32(sp[N].u32); ip->code(ip + 1, sp); }); continue;
+                    case op_i32_popcnt: emit([](ip_t ip, sp_t sp) { sp[N].u32 = __popcnt(sp[N].u32); ip->code(ip + 1, sp); }); continue;
+
+                    case op_i32_add:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 + sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_sub:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 - sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_mul:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 * sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_div_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 / sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_div_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 / sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_rem_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 % sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_rem_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 % sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_and:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 & sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_or:    return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 | sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_xor:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 ^ sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_shl:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 << sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_shr_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 >> sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_shr_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 >> sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = _rotl(sp[N - 1].u32, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
+                    case op_i32_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = _rotr(sp[N - 1].u32, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
+
+                        // 64 bit alu
+                    case op_i64_clz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = _lzcnt_u64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+                    case op_i64_ctz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = _tzcnt_u64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+                    case op_i64_popcnt: emit([](ip_t ip, sp_t sp) { sp[N].u64 = __popcnt64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+
+                    case op_i64_add:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 + sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_sub:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 - sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_mul:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 * sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_div_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 / sp[N].i64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_div_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 / sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_rem_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 % sp[N].i64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_rem_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 % sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_and:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 & sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_or:    return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 | sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_xor:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 ^ sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_shl:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 << sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_shr_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 >> sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_shr_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 >> sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _rotl64(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
+                    case op_i64_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _rotr64(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
+
+                        // misc int
+                    case op_i32_wrap_i64: /*emit([](ip_t ip, sp_t sp) { sp[N].i32 = sp[N].i64; ip->code(ip + 1, sp); });*/ continue;
+                    case op_i64_extend_i32_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = sp[N].i32; ip->code(ip + 1, sp); }); continue;
+                    case op_i64_extend_i32_u: emit([](ip_t ip, sp_t sp) { sp[N].u64 = sp[N].u32; ip->code(ip + 1, sp); }); continue;
+                    case op_i32_extend8_s: emit([](ip_t ip, sp_t sp) { sp[N].i32 = int8_t(sp[N].u32); ip->code(ip + 1, sp); }); continue;
+                    case op_i32_extend16_s: emit([](ip_t ip, sp_t sp) { sp[N].i32 = int16_t(sp[N].u32); ip->code(ip + 1, sp); }); continue;
+                    case op_i64_extend8_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int8_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+                    case op_i64_extend16_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int16_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+                    case op_i64_extend32_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int32_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
+
+                    default: __debugbreak();
+                    }
                 }
-
-                if (bp == &blocks[15])
-                {
-                    emit_return();
-                    return 0;
-                }
-                ++bp;
-                continue;
-
-            case op_br:
-                emit_branch(bp[get_leb128_u32()]);
-                continue;
-
-            case op_br_if:
-            {
-                auto& scope = bp[get_leb128_u32()];
-                if (scope.op == op_loop)
-                {
-                    // branch back
-                    emit([](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip - offset + 1)->code(ip - offset + 2, sp); }, dst - scope.enter + 2);
-                }
-                else
-                {
-                    emit_forward_if(scope.leave - dst_begin);
-                    scope.leave = dst - 1;
-                }
-                return N - 1;
             }
-
-            case op_return:
-                emit_return();
-                continue;
-            case op_call:
-            {
-                auto const& f = functions[get_leb128_u32()];
-                emit([](ip_t ip, sp_t sp)
-                {
-                    sp[N + 1].ip = ip + 2;
-                    sp[N + 2].sp = sp;
-
-                    auto n = ip[0].u32;
-                    ip = ip[1].ip;
-                    ip->code(ip + 1, sp + N - n);
-                });
-                dst[0].u32 = f.argument_count;
-                dst[1].ip = f.ip;
-                dst += 2;
-                n += f.return_count - f.argument_count;
-                continue;
-            }
-            case op_drop: return N - 1;
-            case op_select:
-                emit([](ip_t ip, sp_t sp) { if (sp[N].i32 != 0) sp[N - 2] = sp[N - 1]; ip->code(ip + 1, sp); });
-                return N - 2;
-            case op_local_get:
-            {
-                auto slot = get_leb128_u32();
-                switch (slot)
-                {
-                case 0: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[0]; ip->code(ip + 1, sp); }); break;
-                case 1: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[1]; ip->code(ip + 1, sp); }); break;
-                case 2: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[2]; ip->code(ip + 1, sp); }); break;
-                case 3: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[3]; ip->code(ip + 1, sp); }); break;
-                default: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[operand_u32(ip)]; ip[1].code(ip + 2, sp); }, slot); break;
-                }
-                return compile<N + 1>(N + 1);
-            }
-            case op_local_set:
-                emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
-                return N - 1;
-            case op_local_tee:
-                emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
-                continue;
-
-            case op_i32_const:
-                emit([](ip_t ip, sp_t sp) { sp[N + 1].i32 = ip->i32; ip[1].code(ip + 2, sp); }, get_leb128_i32());
-                return compile<N + 1>(N + 1);
-            case op_i64_const:
-                emit([](ip_t ip, sp_t sp) { sp[N + 1].i64 = ip->i64; ip[1].code(ip + 2, sp); }, get_leb128_i64());
-                return compile<N + 1>(N + 1);
-
-                // 32 bit booleans
-            case op_i32_eqz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = sp[N].u32 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
-
-            case op_i32_eq: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 == sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_ne: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 != sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_lt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 < sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_lt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 < sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_gt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 > sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_gt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 > sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_le_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 <= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_le_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 <= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_ge_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 >= sp[N].i32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_ge_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-
-                // 64 bit booleans
-            case op_i64_eqz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = sp[N].u64 == 0 ? 1 : 0; ip->code(ip + 1, sp); }); continue;
-
-            case op_i64_eq: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 == sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_ne: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 != sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_lt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 < sp[N].i64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_lt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 < sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_gt_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 > sp[N].i64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_gt_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 > sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_le_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 <= sp[N].i64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_le_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 <= sp[N].u64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_ge_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 >= sp[N].i64 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_ge_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 >= sp[N].u32 ? 1 : 0; ip->code(ip + 1, sp); }), N - 1;
-
-                // 32 bit alu
-            case op_i32_clz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = _lzcnt_u32(sp[N].u32); ip->code(ip + 1, sp); }); continue;
-            case op_i32_ctz: emit([](ip_t ip, sp_t sp) { sp[N].u32 = _tzcnt_u32(sp[N].u32); ip->code(ip + 1, sp); }); continue;
-            case op_i32_popcnt: emit([](ip_t ip, sp_t sp) { sp[N].u32 = __popcnt(sp[N].u32); ip->code(ip + 1, sp); }); continue;
-
-            case op_i32_add:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 + sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_sub:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 - sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_mul:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 * sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_div_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 / sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_div_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 / sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_rem_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 % sp[N].i32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_rem_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 % sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_and:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 & sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_or:    return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 | sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_xor:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 ^ sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_shl:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 << sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_shr_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i32 = sp[N - 1].i32 >> sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_shr_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = sp[N - 1].u32 >> sp[N].u32; ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = _rotl(sp[N - 1].u32, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
-            case op_i32_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u32 = _rotr(sp[N - 1].u32, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
-
-                // 64 bit alu
-            case op_i64_clz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = _lzcnt_u64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
-            case op_i64_ctz: emit([](ip_t ip, sp_t sp) { sp[N].u64 = _tzcnt_u64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
-            case op_i64_popcnt: emit([](ip_t ip, sp_t sp) { sp[N].u64 = __popcnt64(sp[N].u64); ip->code(ip + 1, sp); }); continue;
-
-            case op_i64_add:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 + sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_sub:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 - sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_mul:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 * sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_div_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 / sp[N].i64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_div_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 / sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_rem_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 % sp[N].i64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_rem_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 % sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_and:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 & sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_or:    return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 | sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_xor:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 ^ sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_shl:   return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 << sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_shr_s: return emit([](ip_t ip, sp_t sp) { sp[N - 1].i64 = sp[N - 1].i64 >> sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_shr_u: return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = sp[N - 1].u64 >> sp[N].u64; ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_rotl:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _rotl64(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
-            case op_i64_rotr:  return emit([](ip_t ip, sp_t sp) { sp[N - 1].u64 = _rotr64(sp[N - 1].u64, sp[N].i32); ip->code(ip + 1, sp); }), N - 1;
-
-                // misc int
-            case op_i32_wrap_i64: /*emit([](ip_t ip, sp_t sp) { sp[N].i32 = sp[N].i64; ip->code(ip + 1, sp); });*/ continue;
-            case op_i64_extend_i32_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = sp[N].i32; ip->code(ip + 1, sp); }); continue;
-            case op_i64_extend_i32_u: emit([](ip_t ip, sp_t sp) { sp[N].u64 = sp[N].u32; ip->code(ip + 1, sp); }); continue;
-            case op_i32_extend8_s: emit([](ip_t ip, sp_t sp) { sp[N].i32 = int8_t(sp[N].u32); ip->code(ip + 1, sp); }); continue;
-            case op_i32_extend16_s: emit([](ip_t ip, sp_t sp) { sp[N].i32 = int16_t(sp[N].u32); ip->code(ip + 1, sp); }); continue;
-            case op_i64_extend8_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int8_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
-            case op_i64_extend16_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int16_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
-            case op_i64_extend32_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int32_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
-            
-            }
-
-            while (n > N)
-                n = compile<N + 1>(n);
-
-            return n;
         }
         // compile error
         template<> int compile<8>(int) { return 7; }

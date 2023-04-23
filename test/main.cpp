@@ -71,6 +71,12 @@ cjwasm::uint8_t src3[] =
     1, 136, 128, 128, 128, 0, 1, 96, 3, 127, 127, 127, 1, 127, 3, 130, 128, 128, 128, 0, 1, 0, 4, 132, 128, 128, 128, 0, 1, 112, 0, 0, 5, 131, 128, 128, 128, 0, 1, 0, 1, 6, 129, 128, 128, 128, 0, 0, 7, 143, 128, 128, 128, 0, 2, 6, 109, 101, 109, 111, 114, 121, 2, 0, 2, 109, 97, 0, 0, 10, 144, 128, 128, 128, 0, 1, 138, 128, 128, 128, 0, 0, 32, 1, 32, 0, 108, 32, 2, 106, 11
 };
 
+cjwasm::uint8_t src_fib[] =
+{
+    0, 97, 115, 109, 1, 0, 0, 0,
+    1, 134, 128, 128, 128, 0, 1, 96, 1, 127, 1, 127, 3, 130, 128, 128, 128, 0, 1, 0, 4, 132, 128, 128, 128, 0, 1, 112, 0, 0, 5, 131, 128, 128, 128, 0, 1, 0, 1, 6, 129, 128, 128, 128, 0, 0, 7, 144, 128, 128, 128, 0, 2, 6, 109, 101, 109, 111, 114, 121, 2, 0, 3, 102, 105, 98, 0, 0, 10, 164, 128, 128, 128, 0, 1, 158, 128, 128, 128, 0, 0, 2, 64, 32, 0, 65, 2, 78, 13, 0, 32, 0, 15, 11, 32, 0, 65, 127, 106, 16, 0, 32, 0, 65, 126, 106, 16, 0, 106, 11
+};
+
 cjwasm::code_t g_dst[1024];
 
 template<unsigned N> void compile(cjwasm::uint8_t (&src)[N], cjwasm::code_t dst[])
@@ -82,9 +88,12 @@ template<unsigned N> void compile(cjwasm::uint8_t (&src)[N], cjwasm::code_t dst[
 #include <iostream>
 
 
-bool parse()
+bool parse(unsigned size, uint8_t const data[])
 {
-    cjwasm::source s3{ src3, src3, src3 + sizeof(src3) };
+    cjwasm::source s3{ data, data, data + size };
+
+    int f0_argc = 0;
+    int f0_retc = 0;
 
     auto out_type = [](uint8_t bt)
     {
@@ -149,6 +158,8 @@ bool parse()
                 if (underflow()) 
                     return false;
 
+                f0_argc = argc;
+
                 std::cout << "    type #" << i << ": func (";
                 for (uint32_t i = 0; i < argc; ++i)
                 {
@@ -160,6 +171,10 @@ bool parse()
                 }
                 std::cout << ") => (";
                 uint32_t retc = s3.get_leb128_u32();
+                if (underflow())
+                    return false;
+
+                f0_retc = retc;
                 for (uint32_t i = 0; i < retc; ++i)
                 {
                     if (i != 0)
@@ -246,7 +261,7 @@ bool parse()
                 std::cout << "\n";
 
                 cjwasm::compiler c;
-                c.compile_function(3, end - s3.src, s3.src, 1024, g_dst);
+                c.compile_function(f0_argc, end - s3.src, s3.src, 1024, g_dst);
 
                 s3.src = end;
             }
@@ -265,21 +280,28 @@ bool parse()
             break;
         }
     }
+
+    return true;
 }
+
+template<unsigned N> void parse(uint8_t const (&src)[N]) { parse(N, src); }
 
 int main()
 {
-    parse();
-    auto ma = [](int x, int y, int z) { return cjwasm::call<int>(g_dst, x, y, z); };
-
-    std::cout << "ma(3, 4, 5) -> " << ma(3, 4, 5) << "\n";
-
     compile(src2, g_dst);
+    cjwasm::fn<int, int, int> test{ g_dst };
+    auto t = test(5, 5);
+    std::cout << "test = " << t << "\n";
 
-    auto test = [](int x, int y)
-    {
-        return cjwasm::call<int>(g_dst, x, y);
-    };
+    parse(src3);
+    cjwasm::fn<int, int, int, int> ma{ g_dst };
+    auto m = ma(2, 4, 5);
+    std::cout << "ma(3, 4, 5) -> " << m << "\n";
 
-    return test(5, 5);
+    parse(src_fib);
+    cjwasm::fn<int, int> fib{ g_dst };
+    auto f = fib(7);
+    std::cout << "fib = " << f << "\n";
+
+    return 0;
 }
