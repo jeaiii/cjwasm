@@ -554,8 +554,6 @@ namespace cjwasm
         }
         // compile error
         template<> int compile<8>(int) { return 7; }
-        template<> int compile<0>(int) { return 0; }
-        //template<> int compile<1>(int) { return 0; }
 
         size_t compile_function(int n, size_t src_size, uint8_t const src_data[], size_t dst_size, code_t dst_data[])
         {
@@ -576,7 +574,7 @@ namespace cjwasm
             functions[0] = { dst, n, 1 };
             self = &functions[0];
 
-            compile<1>(0 + n);
+            compile<0>(n);
             return dst - dst_begin;
         }
     };
