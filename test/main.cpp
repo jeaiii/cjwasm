@@ -300,7 +300,7 @@ int main()
 
     parse(src_fib);
     cjwasm::fn<int, int> fib{ g_dst };
-    auto f = fib(7);
+    auto f = fib(20);
     std::cout << "fib = " << f << "\n";
 
     return 0;

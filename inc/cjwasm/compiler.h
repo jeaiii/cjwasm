@@ -142,18 +142,21 @@ namespace cjwasm
 
         T operator()(Ts...ts) const
         {
-            value_t done;
-            value_t stack[128];
+            value_t done[3];
+            value_t stack[256];
+
+            //for (auto& s : done) s.u64 = 0xdeadface;
+            //for (auto& s : stack) s.u64 = 0xdeadface;
+
+            done[2].code = trap;
             {
                 unsigned i = 0;
-                done.code = trap;
                 (((Ts&)stack[i++] = ts), ...);
             }
+            stack[sizeof...(Ts)].ip = done;
 
-            stack[sizeof...(Ts)].ip = &done;
-            stack[sizeof...(Ts) + 1].sp = nullptr;
             ip->code(ip + 1, stack);
-            return (T const&)stack[0];
+            return (T const&)(stack[0]);
         }
     };
 
@@ -274,6 +277,7 @@ namespace cjwasm
         void emit(void (*f)(ip_t ip, sp_t sp), uint32_t a) { emit(f), emit(a); }
         void emit(void (*f)(ip_t ip, sp_t sp), uint64_t a) { emit(f), emit(a); }
         void emit(void (*f)(ip_t ip, sp_t sp), decltype("" - "") a) { emit(f), emit(uint32_t(a)); }
+        void emit(ip_t ip) { dst[0].ip = ip; ++dst; }
 
         // unconditional branches don't depend on stack depth so handle them outside compile so there aren't unique ones per stack depth
         void emit_branch(block& scope)
@@ -300,30 +304,12 @@ namespace cjwasm
                 else
                     emit([](ip_t ip, sp_t sp)
                         {
-                            sp[N + 1].ip = ip + 1;
-                            sp[N + 2].sp = sp;
-
+                            sp[N + 1].ip = ip;
                             ip = ip[0].ip;
                             ip->code(ip + 1, 1 + N - Ac + sp);
-                        }), dst[0].ip = f.ip, dst += 1;
+                        }), emit(f.ip), emit(uint32_t(1 + N - Ac));
             }
         }
-
-        // maybe we should encode delta sp in call as call, addr, delta
-        // then we don't need to push and pop sp from the stack
-        
-        // call:
-        // sp[N].ip = ip
-        // jump = ip[0].ip;
-        // assert(ip[1].u32 == 1 + N - Ac)
-        // ip = ip[0].ip;
-        // code(ip + 1, 1 + N - Ac + sp);
-
-        // return:
-        // r_ip = sp[N + 1 - 2 - Rc].ip
-        // pop = r_ip[1].u32
-        // sp[i] = sp[N + 1 - Rc + i]
-        // r_ip[2].code(r_ip + 3, sp - pop)
 
         template<int N, int Rc> void compile_return()
         {
@@ -334,11 +320,11 @@ namespace cjwasm
                 else
                     emit([](ip_t ip, sp_t sp)
                         {
-                            auto return_ip = sp[N + 1 - 2 - Rc].ip;
-                            auto return_sp = sp[N + 1 - 1 - Rc].sp;
+                            auto return_ip = sp[N - Rc].ip + 2;
+                            auto return_sp = sp - return_ip[-1].u32;
 
                             for (int i = 0; i < Rc; ++i)
-                                sp[i] = sp[N + 1 - Rc + i];
+                                sp[i] = sp[1 + N - Rc + i];
 
                             return_ip->code(return_ip + 1, return_sp);
                         });
@@ -568,7 +554,8 @@ namespace cjwasm
         }
         // compile error
         template<> int compile<8>(int) { return 7; }
-        template<> int compile<1>(int) { return 0; }
+        template<> int compile<0>(int) { return 0; }
+        //template<> int compile<1>(int) { return 0; }
 
         size_t compile_function(int n, size_t src_size, uint8_t const src_data[], size_t dst_size, code_t dst_data[])
         {
@@ -589,7 +576,7 @@ namespace cjwasm
             functions[0] = { dst, n, 1 };
             self = &functions[0];
 
-            compile<2>(n + 1);
+            compile<1>(0 + n);
             return dst - dst_begin;
         }
     };
