@@ -87,6 +87,48 @@ template<unsigned N> void compile(cjwasm::uint8_t (&src)[N], cjwasm::code_t dst[
 
 #include <iostream>
 
+namespace cjwasm
+{
+    struct module_t
+    {
+        struct
+        {
+            size_t size;
+            uint8_t const* data;
+        } wasm;
+
+        struct
+        {
+            size_t size;
+            code_t* data;
+        } code;
+
+        struct function
+        {
+            code_t const* code;
+            uint32_t name_ref;
+            uint32_t type_ref;
+        };
+
+        uint8_t const* types[256];
+        function functions[256];
+
+        size_t f_argc(size_t n) const
+        {
+            source s{ wasm.data, wasm.data + functions[n].type_ref, wasm.data + wasm.size };
+            return s.get_leb128_u32();
+        }
+
+        size_t f_retc(size_t n) const
+        {
+            source s{ wasm.data, wasm.data + functions[n].type_ref, wasm.data + wasm.size };
+            auto argc = s.get_leb128_u32();
+            s.src += argc;
+            return s.get_leb128_u32();
+        }
+
+    };
+}
 
 bool parse(unsigned size, uint8_t const data[])
 {
@@ -202,6 +244,27 @@ bool parse(unsigned size, uint8_t const data[])
             break;
         case 4:
             std::cout << section << ": table section [" << length << "]\n";
+            {
+                auto ss = s3;
+                for (uint32_t count = ss.get_leb128_u32(), i = 0; i < count; ++i)
+                {
+                    int et = ss.get_u8();
+                    int limit = ss.get_u8();
+                    uint32_t lim_min = ss.get_leb128_u32();
+                    if (limit == 0)
+                    {
+                        std::cout << "    table #" << i << ": et = " << et << ", lim = " << lim_min << ", *\n";
+                    }
+                    else if (limit == 1)
+                    {
+                        uint32_t lim_max = ss.get_leb128_u32();
+                        std::cout << "    table #" << i << ": et = " << et << ", lim = " << lim_min << ", " << lim_max << '\n';
+                    }
+                    else
+                        return false;
+
+                }
+            }
             s3.src += length;
             break;
         case 5:
@@ -291,17 +354,17 @@ int main()
     compile(src2, g_dst);
     cjwasm::fn<int, int, int> test{ g_dst };
     auto t = test(5, 5);
-    std::cout << "test = " << t << "\n";
+    std::cout << "\ntest = " << t << "\n\n";
 
     parse(src3);
     cjwasm::fn<int, int, int, int> ma{ g_dst };
     auto m = ma(2, 4, 5);
-    std::cout << "ma(3, 4, 5) -> " << m << "\n";
+    std::cout << "\nma(3, 4, 5) -> " << m << "\n\n";
 
     parse(src_fib);
     cjwasm::fn<int, int> fib{ g_dst };
-    auto f = fib(20);
-    std::cout << "fib = " << f << "\n";
+    auto f = fib(10);
+    std::cout << "\nfib(10) = " << f << "\n\n";
 
     return 0;
 }
