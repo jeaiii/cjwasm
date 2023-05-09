@@ -110,7 +110,6 @@ namespace cjwasm
             uint32_t type_ref;
         };
 
-        uint8_t const* types[256];
         function functions[256];
 
         size_t f_argc(size_t n) const
@@ -156,7 +155,12 @@ bool parse(unsigned size, uint8_t const data[])
 
     if (s3.get_u8() == '\0' && s3.get_u8() == 'a' && s3.get_u8() == 's' && s3.get_u8() == 'm')
     {
-        uint32_t version = s3.get_u8() + (uint32_t(s3.get_u8()) << 8) + (uint32_t(s3.get_u8()) << 16) + (uint32_t(s3.get_u8()) << 24);
+        uint32_t v0 = s3.get_u8();
+        uint32_t v1 = s3.get_u8();
+        uint32_t v2 = s3.get_u8();
+        uint32_t v3 = s3.get_u8();
+
+        uint32_t version = v0 + (v1 << 8) + (v2 << 16) + (v3 << 24);
         std::cout << "wasm file version " << version << std::endl;
         if (version != 1)
         {
@@ -169,6 +173,7 @@ bool parse(unsigned size, uint8_t const data[])
         std::cout << "ERROR - bad wasm file\n";
         return false;
     }
+
     for (;s3.src < s3.src_end;)
     {
         int section = s3.get_u8();
