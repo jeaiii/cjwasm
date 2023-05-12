@@ -95,10 +95,10 @@ namespace cjwasm
 
     union value_t
     {
-        int32_t i32;
-        uint32_t u32;
-        int64_t i64;
         uint64_t u64;
+        int64_t i64;
+        uint32_t u32;
+        int32_t i32;
         void (*code)(value_t const*, value_t*);
         value_t const* ip;
         value_t* sp;
@@ -140,35 +140,37 @@ namespace cjwasm
 
     inline void trap(CJWASM_ARGS) { }
 
+    struct function
+    {
+        ip_t ip;
+        int argument_count;
+        int return_count;
+
+        static constexpr struct
+        {
+            value_t call;
+            value_t delta;
+            void (&code)(CJWASM_ARGS);
+        } 
+        common_return{ 0, 0, trap };
+    };
+
     template<class T, class...Ts> struct fn
     {
         ip_t ip;
 
         T operator()(Ts...ts) const
         {
-            value_t done[3];
-            value_t stack[256];
-
-            //for (auto& s : done) s.u64 = 0xdeadface;
-            //for (auto& s : stack) s.u64 = 0xdeadface;
-
-            done[2].code = trap;
+            union
             {
-                unsigned i = 0;
-                (((Ts&)stack[i++] = ts), ...);
-            }
-            stack[sizeof...(Ts)].ip = done;
+                struct { value_t values[sizeof...(Ts) + 1]; } frame;
+                value_t stack[256];
+            };
 
+            frame = { uint64_t(ts)..., uint64_t(&function::common_return.call) };
             ip->code(ip + 1, stack);
-            return (T const&)(stack[0]);
+            return (T const&)stack[0];
         }
-    };
-
-    struct function
-    {
-        ip_t ip;
-        int argument_count;
-        int return_count;
     };
 
     struct source
