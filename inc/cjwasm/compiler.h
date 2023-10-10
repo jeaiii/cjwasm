@@ -155,7 +155,8 @@ namespace cjwasm
         common_return{ 0, 0, trap };
     };
 
-    template<class T, class...Ts> struct fn
+    template<class> struct fn;
+    template<class T, class...Ts> struct fn<T(Ts...)>
     {
         ip_t ip;
 
@@ -272,17 +273,17 @@ namespace cjwasm
             code_t* leave;
         };
 
-        block blocks[16];
+        block blocks[256];
         block* bp;
 
         static uint32_t operand_u32(ip_t ip) { return ip->u32; }
 
         void emit(uint32_t a) { dst[0].u32 = a; ++dst; }
         void emit(uint64_t a) { dst[0].u64 = a; ++dst; }
-        void emit(void (*f)(ip_t ip, sp_t sp)) { dst[0].code = f; ++dst; }
-        void emit(void (*f)(ip_t ip, sp_t sp), uint32_t a) { emit(f), emit(a); }
-        void emit(void (*f)(ip_t ip, sp_t sp), uint64_t a) { emit(f), emit(a); }
-        void emit(void (*f)(ip_t ip, sp_t sp), decltype("" - "") a) { emit(f), emit(uint32_t(a)); }
+        void emit(void (*f)(CJWASM_ARGS)) { dst[0].code = f; ++dst; }
+        void emit(void (*f)(CJWASM_ARGS), uint32_t a) { emit(f), emit(a); }
+        void emit(void (*f)(CJWASM_ARGS), uint64_t a) { emit(f), emit(a); }
+        void emit(void (*f)(CJWASM_ARGS), decltype("" - "") a) { emit(f), emit(uint32_t(a)); }
         void emit(ip_t ip) { dst[0].ip = ip; ++dst; }
 
         // unconditional branches don't depend on stack depth so handle them outside compile so there aren't unique ones per stack depth
@@ -291,12 +292,12 @@ namespace cjwasm
             if (scope.op == op_loop)
             {
                 // branch back
-                emit([](ip_t ip, sp_t sp) { auto offset = operand_u32(ip); (ip - offset + 1)->code(ip - offset + 2, sp); }, dst - scope.enter + 2);
+                emit([](CJWASM_ARGS) { auto offset = operand_u32(ip); (ip - offset + 1)->code(ip - offset + 2, sp); }, dst - scope.enter + 2);
             }
             else
             {
                 // branch forward
-                emit([](ip_t ip, sp_t sp) { auto offset = operand_u32(ip); (ip + offset + 1)->code(ip + offset + 2, sp); }, dst - scope.leave);
+                emit([](CJWASM_ARGS) { auto offset = operand_u32(ip); (ip + offset + 1)->code(ip + offset + 2, sp); }, dst - scope.leave);
                 scope.leave = dst - 1;
             }
         }
@@ -346,13 +347,15 @@ namespace cjwasm
         {
             auto emit_forward_if = [this](decltype("" - "") a)
             {
-                emit([](ip_t ip, sp_t sp)
-                    {
-                        auto jump = operand_u32(ip);
-                        ++ip;
-                        jump = sp[N].i32 == 0 ? 0 : jump;
-                        ip += jump;
-                        ip->code(ip + 1, sp);
+                emit([](CJWASM_ARGS)
+                {
+                    auto offset = operand_u32(ip);
+                    auto jump = sp[N].i32 != 0 ? offset : 0;
+
+                    ip += jump;
+                    ip += 2;
+                    ip[-1].code(ip, sp);
+
                     }, uint32_t(a));
             };
 
@@ -365,8 +368,10 @@ namespace cjwasm
                 if (n > N)
                     n = compile<N + 1>(n);
 
-                while (n == N) {
-                    switch (get_op())
+                while (n == N)
+                {
+                    auto op = get_op();
+                    switch (op)
                     {
                     case op_unreachable:
                         emit(trap);
@@ -395,6 +400,8 @@ namespace cjwasm
 
                     case op_end:
                         // fix up forward branches
+                        // BUG
+#if 0
                         for (auto np = bp[0].leave; np != dst_begin;)
                         {
                             auto offset = np->u32;
@@ -402,8 +409,9 @@ namespace cjwasm
 
                             np = dst_begin + offset;
                         }
+#endif
 
-                        if (bp == &blocks[15])
+                        if (bp == &blocks[255])
                         {
                             compile_return<N, 0>();
                             return 0;
@@ -421,7 +429,13 @@ namespace cjwasm
                         if (scope.op == op_loop)
                         {
                             // branch back
-                            emit([](ip_t ip, sp_t sp) { auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); (ip - offset + 1)->code(ip - offset + 2, sp); }, dst - scope.enter + 2);
+                            emit([](CJWASM_ARGS)
+                                { 
+                                    auto offset = sp[N].i32 == 0 ? 0 : operand_u32(ip); 
+                                    ++ip;
+                                    ip -= offset;
+                                    CJWASM_NEXT();
+                                }, dst - scope.enter + 2);
                         }
                         else
                         {
@@ -430,56 +444,86 @@ namespace cjwasm
                         }
                         return N - 1;
                     }
-
+                    case _op_br_table:
+                    {
+                        auto n = get_leb128_u32();
+                        for (uint32_t i = 0; i < n; ++i)
+                            (void)get_leb128_u32();
+                        (void)get_leb128_u32();
+                        continue;
+                    }
                     case op_return:
                         compile_return<N, 0>();
                         n -= self->return_count;
                         continue;
                     case op_call:
                     {
-                        auto const& f = functions[get_leb128_u32()];
+                        auto fn = get_leb128_u32();
+                        fn = 0; // TEST
+                        auto const& f = functions[fn];
                         compile_call<N, 0>(f);
                         n += f.return_count - f.argument_count;
+                        //n += 1;
                         continue;
                     }
+                    case _op_call_indirect:
+                    {
+                        auto tableidx = get_leb128_u32();
+                        auto typeidx = get_leb128_u32();
+                        continue;
+                    }
+
                     case op_drop: return N - 1;
                     case op_select:
-                        emit([](ip_t ip, sp_t sp) { if (sp[N].i32 != 0) sp[N - 2] = sp[N - 1]; ip->code(ip + 1, sp); });
+                        emit([](CJWASM_ARGS) { if (sp[N].i32 != 0) sp[N - 2] = sp[N - 1]; CJWASM_NEXT(); });
                         return N - 2;
                     case op_local_get:
                     {
                         auto slot = get_leb128_u32();
                         switch (slot)
                         {
-                        case 0: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[0]; ip->code(ip + 1, sp); }); break;
-                        case 1: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[1]; ip->code(ip + 1, sp); }); break;
-                        case 2: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[2]; ip->code(ip + 1, sp); }); break;
-                        case 3: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[3]; ip->code(ip + 1, sp); }); break;
-                        default: emit([](ip_t ip, sp_t sp) { sp[N + 1] = sp[operand_u32(ip)]; ip[1].code(ip + 2, sp); }, slot); break;
+                        case 0: emit([](CJWASM_ARGS) { sp[N + 1] = sp[0]; CJWASM_NEXT(); }); break;
+                        case 1: emit([](CJWASM_ARGS) { sp[N + 1] = sp[1]; CJWASM_NEXT(); }); break;
+                        case 2: emit([](CJWASM_ARGS) { sp[N + 1] = sp[2]; CJWASM_NEXT(); }); break;
+                        case 3: emit([](CJWASM_ARGS) { sp[N + 1] = sp[3]; CJWASM_NEXT(); }); break;
+                        default: emit([](CJWASM_ARGS) { sp[N + 1] = sp[operand_u32(ip)]; ++ip;  CJWASM_NEXT(); }, slot); break;
                         }
                         ++n;
                         continue;
 
                     }
                     case op_local_set:
-                        emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
+                        emit([](CJWASM_ARGS) { sp[operand_u32(ip)] = sp[N]; ++ip; CJWASM_NEXT(); }, get_leb128_u32());
                         return N - 1;
                     case op_local_tee:
-                        emit([](ip_t ip, sp_t sp) { sp[operand_u32(ip)] = sp[N]; ip[1].code(ip + 2, sp); }, get_leb128_u32());
+                        emit([](CJWASM_ARGS) { sp[operand_u32(ip)] = sp[N]; ++ip; CJWASM_NEXT(); }, get_leb128_u32());
                         continue;
 
                     // TODO add env
                     case _op_global_set:
-                        emit([](auto ip, auto sp) { auto gp = sp[0].vp; gp[operand_u32(ip)] = sp[N];  ip[1].code(ip + 2, sp);  }, get_leb128_u32());
+                        emit([](CJWASM_ARGS) { auto gp = sp[0].vp; gp[operand_u32(ip)] = sp[N];  ip[1].code(ip + 2, sp);  }, get_leb128_u32());
                         return N - 1;
                     case _op_global_get:
-                        emit([](auto ip, auto sp) { auto gp = sp[0].vp; sp[N + 1] = gp[operand_u32(ip)];  ip[1].code(ip + 2, sp);  }, get_leb128_u32());
+                        emit([](CJWASM_ARGS) { auto gp = sp[0].vp; sp[N + 1] = gp[operand_u32(ip)];  ip[1].code(ip + 2, sp);  }, get_leb128_u32());
                         ++n;
                         break;
 
                     case _op_i32_load:
+                    case _op_i64_load:
+                    case _op_f32_load:
+                    case _op_f64_load:
+                    case _op_i32_load8_s:
+                    case _op_i32_load8_u:
+                    case _op_i32_load16_s:
+                    case _op_i32_load16_u:
+                    case _op_i64_load8_s:
+                    case _op_i64_load8_u:
+                    case _op_i64_load16_s:
+                    case _op_i64_load16_u:
+                    case _op_i64_load32_s:
+                    case _op_i64_load32_u:
                     {
-                        auto load = [](auto ip, auto sp)
+                        auto load = [](CJWASM_ARGS)
                         {
                             sp[N].u32 = *(uint32_t const*)((char const*)(sp[0].vp) + sp[N].u32 + operand_u32(ip));
                             ip[1].code(ip + 2, sp);
@@ -488,6 +532,29 @@ namespace cjwasm
                         (void)get_leb128_u32(); // align
                         emit(load, offset);
                         break;
+                    }
+
+                    case _op_i32_store:
+                    case _op_i64_store:
+                    case _op_f32_store:
+                    case _op_f64_store:
+                    case _op_i32_store8:
+                    case _op_i32_store16:
+                    case _op_i64_store8:
+                    case _op_i64_store16:
+                    case _op_i64_store32:
+                    {
+                        auto offset = get_leb128_u32();
+                        (void)get_leb128_u32(); // align
+                        auto store = [](CJWASM_ARGS)
+                        {
+                            auto offset = operand_u32(ip);
+                            (void)offset;
+                            //TODO mem[sp[N-1] + offset] = sp[N];
+                            ip[1].code(ip + 2, sp);
+                        };
+                        emit(store, offset);
+                        return N - 2;
                     }
 
                     case op_i32_const:
@@ -579,7 +646,21 @@ namespace cjwasm
                     case op_i64_extend16_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int16_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
                     case op_i64_extend32_s: emit([](ip_t ip, sp_t sp) { sp[N].i64 = int32_t(sp[N].u64); ip->code(ip + 1, sp); }); continue;
 
+                    case _op_fc:
+                    {
+                        auto fc = get_op();
+                        switch (fc)
+                        {
+                        case _fc_memory_copy:
+                            continue;
+                        case _fc_memory_fill:
+                            continue;
+                        default: __debugbreak();
+                        }
+                        continue;
+                    }
                     default: __debugbreak();
+                        continue;
                     }
                 }
             }
@@ -597,7 +678,7 @@ namespace cjwasm
             dst = dst_begin;
             dst_end = dst + dst_size;
 
-            bp = &blocks[15];
+            bp = &blocks[255];
             *bp = { op_block, bt_i32, dst, dst_begin };
 
             function fs[8];

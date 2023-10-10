@@ -77,7 +77,7 @@ cjwasm::uint8_t src_fib[] =
     1, 134, 128, 128, 128, 0, 1, 96, 1, 127, 1, 127, 3, 130, 128, 128, 128, 0, 1, 0, 4, 132, 128, 128, 128, 0, 1, 112, 0, 0, 5, 131, 128, 128, 128, 0, 1, 0, 1, 6, 129, 128, 128, 128, 0, 0, 7, 144, 128, 128, 128, 0, 2, 6, 109, 101, 109, 111, 114, 121, 2, 0, 3, 102, 105, 98, 0, 0, 10, 164, 128, 128, 128, 0, 1, 158, 128, 128, 128, 0, 0, 2, 64, 32, 0, 65, 2, 78, 13, 0, 32, 0, 15, 11, 32, 0, 65, 127, 106, 16, 0, 32, 0, 65, 126, 106, 16, 0, 106, 11
 };
 
-cjwasm::code_t g_dst[1024];
+cjwasm::code_t g_dst[1024 * 64];
 
 template<unsigned N> void compile(cjwasm::uint8_t (&src)[N], cjwasm::code_t dst[])
 {
@@ -86,6 +86,20 @@ template<unsigned N> void compile(cjwasm::uint8_t (&src)[N], cjwasm::code_t dst[
 }
 
 #include <iostream>
+#include <fstream>
+#include <vector>
+
+std::vector<std::byte> get_file(char const path[])
+{
+    std::vector<std::byte> file;
+
+    if (auto ifs = std::ifstream{ path, std::ios::in | std::ios::binary | std::ios::ate }) {
+        file.resize(ifs.tellg());
+        ifs.seekg(0, std::ios::beg);
+        ifs.read(reinterpret_cast<char*>(file.data()), file.size());
+    }
+    return file;
+}
 
 namespace cjwasm
 {
@@ -129,12 +143,23 @@ namespace cjwasm
     };
 }
 
-bool parse(unsigned size, uint8_t const data[])
+bool parse(size_t size, uint8_t const data[])
 {
     cjwasm::source s3{ data, data, data + size };
 
-    int f0_argc = 0;
-    int f0_retc = 0;
+    struct type
+    {
+        cjwasm::uint32_t argc;
+        cjwasm::uint32_t retc;
+    };
+
+    struct function
+    {
+        cjwasm::uint32_t type;
+    };
+
+    type types[256]{ };
+    function functions[2048]{ };
 
     auto out_type = [](uint8_t bt)
     {
@@ -205,8 +230,6 @@ bool parse(unsigned size, uint8_t const data[])
                 if (underflow()) 
                     return false;
 
-                f0_argc = argc;
-
                 std::cout << "    type #" << i << ": func (";
                 for (uint32_t i = 0; i < argc; ++i)
                 {
@@ -221,7 +244,9 @@ bool parse(unsigned size, uint8_t const data[])
                 if (underflow())
                     return false;
 
-                f0_retc = retc;
+                types[i].argc = argc;
+                types[i].retc = retc;
+
                 for (uint32_t i = 0; i < retc; ++i)
                 {
                     if (i != 0)
@@ -238,13 +263,40 @@ bool parse(unsigned size, uint8_t const data[])
             break;
         case 2:
             std::cout << section << ": import section [" << length << "]\n";
-            s3.src += length;
+
+            for (uint32_t count = s3.get_leb128_u32(), i = 0; i < count; ++i)
+            {
+                auto name = [&]
+                {
+                    uint32_t name_length = s3.get_leb128_u32();
+                    for (uint32_t i = 0; i < name_length; ++i)
+                        std::cout << s3.get_u8();
+                };
+
+                std::cout << "    import #" << i << ": mod = '";
+                name();
+                std::cout << "', name = '";
+                name();
+                auto kind = s3.get_u8();
+                if (kind == 0x00)
+                {
+                    auto typeidx = s3.get_leb128_u32();
+                    std::cout << ", kind = function, typeidx = " << typeidx;
+                }
+                else
+                {
+
+                }
+                std::cout << "\n";
+            }
             break;
         case 3:
             std::cout << section << ": function section [" << length << "]\n";
             for (uint32_t count = s3.get_leb128_u32(), i = 0; i < count; ++i)
             {
-                std::cout << "    function #" << i << ": typeidx = " << s3.get_leb128_u32() << "\n";
+                auto type = s3.get_leb128_u32();
+                std::cout << "    function #" << i << ": typeidx = " << type << "\n";
+                functions[i].type = type;
             }
             break;
         case 4:
@@ -318,6 +370,7 @@ bool parse(unsigned size, uint8_t const data[])
                 auto end = s3.src + size;
                 uint32_t localc = s3.get_leb128_u32();
                 std::cout << "    code #" << i << ": locals = " << localc;
+                uint32_t local_n = 0;
                 for (uint32_t i = 0; i < localc; ++i)
                 {
                     uint32_t n = s3.get_leb128_u32();
@@ -325,11 +378,13 @@ bool parse(unsigned size, uint8_t const data[])
                     std::cout << ", [" << n << "; ";
                     out_type(type);
                     std::cout << "]";
+
+                    local_n += n;
                 }
                 std::cout << "\n";
 
                 cjwasm::compiler c;
-                c.compile_function(f0_argc, end - s3.src, s3.src, 1024, g_dst);
+                c.compile_function(types[functions[i].type].argc + local_n, end - s3.src, s3.src, 1024 * 64, g_dst);
 
                 s3.src = end;
             }
@@ -356,18 +411,23 @@ template<unsigned N> void parse(uint8_t const (&src)[N]) { parse(N, src); }
 
 int main()
 {
+    auto main_wasm = get_file("main.wasm");
+    parse(main_wasm.size(), (uint8_t const*)main_wasm.data());
+
+    //return 0;
+
     compile(src2, g_dst);
-    cjwasm::fn<int, int, int> test{ g_dst };
+    cjwasm::fn<int(int, int)> test{ g_dst };
     auto t = test(5, 5);
     std::cout << "\ntest = " << t << "\n\n";
 
     parse(src3);
-    cjwasm::fn<int, int, int, int> ma{ g_dst };
+    cjwasm::fn<int(int, int, int)> ma{ g_dst };
     auto m = ma(2, 4, 5);
     std::cout << "\nma(3, 4, 5) -> " << m << "\n\n";
 
     parse(src_fib);
-    cjwasm::fn<int, int> fib{ g_dst };
+    cjwasm::fn<int(int)> fib{ g_dst };
     auto f = fib(10);
     std::cout << "\nfib(10) = " << f << "\n\n";
 
